@@ -1,0 +1,235 @@
+{
+  "info": {
+    "name": "Bybit Trade API",
+    "description": "Kolekcja zapytań do API Bybit Trade",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Lokalne środowisko",
+      "item": [
+        {
+          "name": "Pobierz wszystkie pozycje",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "http://localhost:8888/api/positions",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "8888",
+              "path": ["api", "positions"]
+            }
+          }
+        },
+        {
+          "name": "Pobierz otwarte pozycje",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "http://localhost:8888/api/positions/open",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "8888",
+              "path": ["api", "positions", "open"]
+            }
+          }
+        },
+        {
+          "name": "Otwórz pozycję LONG",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"BTCUSDT\",\n  \"type\": \"LONG\",\n  \"amount\": 0.001,\n  \"takeProfitPrice\": 37000,\n  \"stopLossPrice\": 35000\n}"
+            },
+            "url": {
+              "raw": "http://localhost:8888/api/positions",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "8888",
+              "path": ["api", "positions"]
+            }
+          }
+        },
+        {
+          "name": "Otwórz pozycję SHORT",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"ETHUSDT\",\n  \"type\": \"SHORT\",\n  \"amount\": 0.01,\n  \"takeProfitPrice\": 2000,\n  \"stopLossPrice\": 2300\n}"
+            },
+            "url": {
+              "raw": "http://localhost:8888/api/positions",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "8888",
+              "path": ["api", "positions"]
+            }
+          }
+        },
+        {
+          "name": "Zamknij pozycję",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "http://localhost:8888/api/positions/1/close",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "8888",
+              "path": ["api", "positions", "1", "close"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Docker",
+      "item": [
+        {
+          "name": "Pobierz wszystkie pozycje",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "http://localhost:8082/api/positions",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "8082",
+              "path": ["api", "positions"]
+            }
+          }
+        },
+        {
+          "name": "Pobierz otwarte pozycje",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "http://localhost:8082/api/positions/open",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "8082",
+              "path": ["api", "positions", "open"]
+            }
+          }
+        },
+        {
+          "name": "Otwórz pozycję LONG",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"BTCUSDT\",\n  \"type\": \"LONG\",\n  \"amount\": 0.001,\n  \"takeProfitPrice\": 37000,\n  \"stopLossPrice\": 35000\n}"
+            },
+            "url": {
+              "raw": "http://localhost:8082/api/positions",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "8082",
+              "path": ["api", "positions"]
+            }
+          }
+        },
+        {
+          "name": "Otwórz pozycję SHORT",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"ETHUSDT\",\n  \"type\": \"SHORT\",\n  \"amount\": 0.01,\n  \"takeProfitPrice\": 2000,\n  \"stopLossPrice\": 2300\n}"
+            },
+            "url": {
+              "raw": "http://localhost:8082/api/positions",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "8082",
+              "path": ["api", "positions"]
+            }
+          }
+        },
+        {
+          "name": "Zamknij pozycję",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "http://localhost:8082/api/positions/1/close",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "8082",
+              "path": ["api", "positions", "1", "close"]
+            }
+          }
+        }
+      ]
+    }
+  ]
+} 

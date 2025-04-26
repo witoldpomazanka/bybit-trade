@@ -1,0 +1,100 @@
+### Konfiguracja zmiennych dla lokalnego środowiska
+@host = http://localhost:8888
+@dockerhost = http://localhost:8082
+@contentType = application/json
+
+### Pobierz wszystkie pozycje (lokalnie)
+GET {{host}}/api/positions
+Accept: {{contentType}}
+
+### Pobierz wszystkie pozycje (z Docker)
+GET {{dockerhost}}/api/positions
+Accept: {{contentType}}
+
+### Pobierz tylko otwarte pozycje (lokalnie)
+GET {{host}}/api/positions/open
+Accept: {{contentType}}
+
+### Pobierz tylko otwarte pozycje (z Docker)
+GET {{dockerhost}}/api/positions/open
+Accept: {{contentType}}
+
+### Otwórz nową pozycję LONG (lokalnie)
+POST {{host}}/api/positions
+Content-Type: {{contentType}}
+
+{
+  "symbol": "BTCUSDT",
+  "type": "LONG",
+  "amount": 0.001,
+  "takeProfitPrice": 37000,
+  "stopLossPrice": 35000
+}
+
+### Otwórz nową pozycję LONG (z Docker)
+POST {{dockerhost}}/api/positions
+Content-Type: {{contentType}}
+
+{
+  "symbol": "BTCUSDT",
+  "type": "LONG",
+  "amount": 0.001,
+  "takeProfitPrice": 37000,
+  "stopLossPrice": 35000
+}
+
+### Otwórz nową pozycję SHORT (lokalnie)
+POST {{host}}/api/positions
+Content-Type: {{contentType}}
+
+{
+  "symbol": "ETHUSDT",
+  "type": "SHORT",
+  "amount": 0.01,
+  "takeProfitPrice": 2000,
+  "stopLossPrice": 2300
+}
+
+### Otwórz nową pozycję SHORT (z Docker)
+POST {{dockerhost}}/api/positions
+Content-Type: {{contentType}}
+
+{
+  "symbol": "ETHUSDT",
+  "type": "SHORT",
+  "amount": 0.01,
+  "takeProfitPrice": 2000,
+  "stopLossPrice": 2300
+}
+
+### Zamknij pozycję o ID 1 (lokalnie)
+POST {{host}}/api/positions/1/close
+Accept: {{contentType}}
+
+### Zamknij pozycję o ID 1 (z Docker)
+POST {{dockerhost}}/api/positions/1/close
+Accept: {{contentType}}
+
+### Przykład z więcej niż jedną pozycją (lokalnie)
+POST {{host}}/api/positions
+Content-Type: {{contentType}}
+
+{
+  "symbol": "SOLUSDT",
+  "type": "LONG",
+  "amount": 0.5,
+  "takeProfitPrice": 150,
+  "stopLossPrice": 140
+}
+
+### Przykład z więcej niż jedną pozycją (z Docker)
+POST {{dockerhost}}/api/positions
+Content-Type: {{contentType}}
+
+{
+  "symbol": "SOLUSDT",
+  "type": "LONG",
+  "amount": 0.5,
+  "takeProfitPrice": 150,
+  "stopLossPrice": 140
+} 
