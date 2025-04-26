@@ -115,6 +115,66 @@
               "path": ["api", "positions", "1", "close"]
             }
           }
+        },
+        {
+          "name": "Bybit - Pobierz otwarte pozycje",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "http://localhost:8888/api/bybit/positions/open",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "8888",
+              "path": ["api", "bybit", "positions", "open"]
+            }
+          }
+        },
+        {
+          "name": "Bybit - Pobierz saldo konta",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "http://localhost:8888/api/bybit/account/balance",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "8888",
+              "path": ["api", "bybit", "account", "balance"]
+            }
+          }
+        },
+        {
+          "name": "Bybit - Pobierz pozycje dla symbolu",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "http://localhost:8888/api/bybit/positions/symbol/BTCUSDT",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "8888",
+              "path": ["api", "bybit", "positions", "symbol", "BTCUSDT"]
+            }
+          }
         }
       ]
     },
@@ -226,6 +286,66 @@
               "host": ["localhost"],
               "port": "8082",
               "path": ["api", "positions", "1", "close"]
+            }
+          }
+        },
+        {
+          "name": "Bybit - Pobierz otwarte pozycje",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "http://localhost:8082/api/bybit/positions/open",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "8082",
+              "path": ["api", "bybit", "positions", "open"]
+            }
+          }
+        },
+        {
+          "name": "Bybit - Pobierz saldo konta",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "http://localhost:8082/api/bybit/account/balance",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "8082",
+              "path": ["api", "bybit", "account", "balance"]
+            }
+          }
+        },
+        {
+          "name": "Bybit - Pobierz pozycje dla symbolu",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "http://localhost:8082/api/bybit/positions/symbol/BTCUSDT",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "8082",
+              "path": ["api", "bybit", "positions", "symbol", "BTCUSDT"]
             }
           }
         }

@@ -1,102 +1,80 @@
 # Bybit Trade
 
-Serwis do obsługi tradingu kryptowalutami na platformie Bybit.
+Aplikacja do zarządzania handlem kryptowalutami na giełdzie Bybit.
 
-## Funkcjonalności
+## Funkcje
 
-- Otwieranie pozycji tradingowych
-- Zamykanie pozycji tradingowych
-- Pobieranie listy wszystkich pozycji
-- Pobieranie listy otwartych pozycji
+- Zarządzanie pozycjami tradingowymi (otwieranie, zamykanie)
+- Integracja z API Bybit V5 (pobieranie otwartych pozycji, sald konta)
+- Śledzenie historii transakcji
+- Analiza wyników
 
 ## Wymagania
 
 - Java 17
-- Maven
-- Docker i Docker Compose
-- PostgreSQL (opcjonalnie lokalnie, domyślnie używane z Docker Compose)
+- PostgreSQL
+- Konto na giełdzie Bybit (oraz klucze API)
 
 ## Konfiguracja
 
-Serwis korzysta z danych API Bybit pobieranych ze zmiennych środowiskowych:
-- `BYBIT_API_KEY` - klucz API Bybit
-- `BYBIT_API_SECRET` - sekretny klucz API Bybit
+### Zmienne środowiskowe
 
-## Uruchomienie lokalnie
+Aplikacja wymaga następujących zmiennych środowiskowych:
+
+```
+POSTGRES_HOST=localhost
+POSTGRES_PORT=5432
+POSTGRES_DB=bybit_trade
+POSTGRES_USER=user
+POSTGRES_PASSWORD=password
+BYBIT_API_KEY=twój_klucz_api
+BYBIT_API_SECRET=twój_sekret_api
+BYBIT_TESTNET=true   # true dla środowiska testowego, false dla produkcyjnego
+```
+
+### Uruchomienie lokalne
 
 1. Sklonuj repozytorium
-2. Utwórz plik `.env` na podstawie przykładu poniżej:
-```
-# Zmienne dla PostgreSQL
-POSTGRES_USER=postgres
-POSTGRES_PASSWORD=postgres
-POSTGRES_DB=bybit_data
+2. Skonfiguruj zmienne środowiskowe
+3. Uruchom PostgreSQL
+4. Uruchom aplikację za pomocą skryptu:
 
-# Zmienne dla Bybit API
-BYBIT_API_KEY=your_bybit_api_key
-BYBIT_API_SECRET=your_bybit_api_secret
-
-# Pozostałe zmienne dla usług
-PGADMIN_DEFAULT_EMAIL=admin@example.com
-PGADMIN_DEFAULT_PASSWORD=admin
-N8N_BASIC_AUTH_USER=admin
-N8N_BASIC_AUTH_PASSWORD=admin
-TELEGRAM_API_ID=your_api_id
-TELEGRAM_API_HASH=your_api_hash
-TELEGRAM_PHONE=your_phone
 ```
-3. Upewnij się, że masz lokalnie uruchomioną bazę PostgreSQL lub uruchom ją z Docker Compose:
-```
-docker-compose up -d postgres
-```
-4. Zbuduj projekt komendą:
-```
-mvn clean install
-```
-5. Uruchom aplikację z profilem `local`:
-```
-java -jar -Dspring.profiles.active=local target/trade-0.0.1-SNAPSHOT.jar
+./run-local.sh
 ```
 
-Alternatywnie, możesz uruchomić z Maven:
+Lub na Windows:
+
 ```
-mvn spring-boot:run -Dspring-boot.run.profiles=local
+run-local.bat
 ```
 
-## Uruchomienie z Docker Compose
+### Uruchomienie w Dockerze
 
-1. Utwórz plik `.env` jak opisano powyżej
-2. Uruchom wszystkie usługi:
 ```
 docker-compose up -d
 ```
 
-Dostępne usługi:
-- **bybit-trade**: `http://localhost:8082` - serwis do handlu na Bybit (w Docker Compose)
-- **bybit-trade**: `http://localhost:8888` - serwis do handlu na Bybit (przy lokalnym uruchomieniu)
-- **PostgreSQL**: `localhost:5432` - baza danych
-- **pgAdmin**: `http://localhost:8081` - administracja bazą danych
-- **n8n**: `http://localhost:5678` - platforma automatyzacji
-- **telethon-listener**: `http://localhost:8080` - serwis do komunikacji z Telegramem
+## Korzystanie z API
 
-## Integracja z istniejącymi usługami
+Aplikacja udostępnia REST API. Przykładowe endpointy:
 
-Serwis bybit-trade został zintegrowany z:
-- **PostgreSQL** - współdzieli tę samą bazę danych co inne usługi
-- **n8n** - można skonfigurować przepływy pracy, które będą wywoływać API serwisu bybit-trade
+### Zarządzanie pozycjami
 
-## Endpointy API
+#### Pobieranie wszystkich pozycji
 
-### Pozycje
+```bash
+curl -X GET http://localhost:8888/api/positions
+```
 
-- `POST /api/positions` - Otwórz nową pozycję
-- `POST /api/positions/{id}/close` - Zamknij pozycję
-- `GET /api/positions` - Pobierz wszystkie pozycje
-- `GET /api/positions/open` - Pobierz otwarte pozycje
+#### Pobieranie otwartych pozycji
 
-## Przykład wywołania API
+```bash
+curl -X GET http://localhost:8888/api/positions/open
+```
 
-Otwieranie pozycji:
+#### Otwieranie pozycji
+
 ```bash
 curl -X POST http://localhost:8888/api/positions \
   -H "Content-Type: application/json" \
@@ -109,17 +87,26 @@ curl -X POST http://localhost:8888/api/positions \
   }'
 ```
 
-Zamykanie pozycji:
+#### Zamykanie pozycji
+
 ```bash
 curl -X POST http://localhost:8888/api/positions/1/close
 ```
 
-Pobieranie wszystkich pozycji:
+### Integracja z Bybit API
+
+#### Pobieranie otwartych pozycji z Bybit
+
 ```bash
-curl -X GET http://localhost:8888/api/positions
+curl -X GET http://localhost:8888/api/bybit/positions/open
 ```
 
-Pobieranie otwartych pozycji:
+#### Pobieranie salda konta z Bybit
+
 ```bash
-curl -X GET http://localhost:8888/api/positions/open
+curl -X GET http://localhost:8888/api/bybit/account/balance
 ```
+
+## Kolekcja Postman
+
+W repozytorium znajduje się kolekcja Postman (`postman_collection.json`), która ułatwia testowanie API.

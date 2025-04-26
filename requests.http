@@ -97,4 +97,20 @@ Content-Type: {{contentType}}
   "amount": 0.5,
   "takeProfitPrice": 150,
   "stopLossPrice": 140
-} 
+}
+
+### Bybit - Pobierz otwarte pozycje (lokalnie)
+GET {{host}}/api/bybit/positions/open
+Accept: {{contentType}}
+
+### Bybit - Pobierz otwarte pozycje (z Docker)
+GET {{dockerhost}}/api/bybit/positions/open
+Accept: {{contentType}}
+
+### Bybit - Pobierz saldo konta (lokalnie)
+GET {{host}}/api/bybit/account/balance
+Accept: {{contentType}}
+
+### Bybit - Pobierz saldo konta (z Docker)
+GET {{dockerhost}}/api/bybit/account/balance
+Accept: {{contentType}} 
