@@ -175,6 +175,26 @@
               "path": ["api", "bybit", "positions", "symbol", "BTCUSDT"]
             }
           }
+        },
+        {
+          "name": "Bybit - Pobierz zlecenia dla symbolu",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "http://localhost:8888/api/bybit/orders/symbol/BTCUSDT",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "8888",
+              "path": ["api", "bybit", "orders", "symbol", "BTCUSDT"]
+            }
+          }
         }
       ]
     },
@@ -346,6 +366,26 @@
               "host": ["localhost"],
               "port": "8082",
               "path": ["api", "bybit", "positions", "symbol", "BTCUSDT"]
+            }
+          }
+        },
+        {
+          "name": "Bybit - Pobierz zlecenia dla symbolu",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "http://localhost:8082/api/bybit/orders/symbol/BTCUSDT",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "8082",
+              "path": ["api", "bybit", "orders", "symbol", "BTCUSDT"]
             }
           }
         }

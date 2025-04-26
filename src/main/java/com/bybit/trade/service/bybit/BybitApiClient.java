@@ -28,6 +28,7 @@ public class BybitApiClient {
     private static final String POSITIONS_ENDPOINT = "/v5/position/list";
     private static final String WALLET_BALANCE_ENDPOINT = "/v5/account/wallet-balance";
     private static final String ORDERS_ENDPOINT = "/v5/order/realtime";
+    private static final String PLACE_ORDER_ENDPOINT = "/v5/order/create";
     private static final String HMAC_SHA256 = "HmacSHA256";
     
     private final String apiKey;
@@ -97,6 +98,49 @@ public class BybitApiClient {
     }
 
     /**
+     * Otwiera nową pozycję na Bybit
+     *
+     * @param category kategoria instrumentu (np. "linear")
+     * @param symbol symbol instrumentu (np. "BTCUSDT")
+     * @param side strona transakcji ("Buy" dla long, "Sell" dla short)
+     * @param orderType typ zlecenia (np. "Market", "Limit")
+     * @param qty ilość
+     * @param price cena (opcjonalna dla zleceń typu Market)
+     * @param takeProfit cena take profit
+     * @param stopLoss cena stop loss
+     * @return odpowiedź z API zawierająca informacje o złożonym zleceniu
+     * @throws IOException jeśli wystąpi błąd podczas komunikacji z API
+     */
+    public JsonNode openPosition(String category, String symbol, String side, String orderType, 
+                                String qty, String price, String takeProfit, String stopLoss) throws IOException {
+        TreeMap<String, String> params = new TreeMap<>();
+        params.put("category", category);
+        params.put("symbol", symbol);
+        params.put("side", side);
+        params.put("orderType", orderType);
+        params.put("qty", qty);
+        
+        if (price != null && !price.isEmpty()) {
+            params.put("price", price);
+        }
+        
+        if (takeProfit != null && !takeProfit.isEmpty()) {
+            params.put("takeProfit", takeProfit);
+        }
+        
+        if (stopLoss != null && !stopLoss.isEmpty()) {
+            params.put("stopLoss", stopLoss);
+        }
+        
+        // Dodatkowe parametry
+        params.put("timeInForce", "GoodTillCancel");
+        params.put("positionIdx", "0"); // Jedno kierunkowy tryb pozycji
+        
+        log.info("Otwieranie pozycji: symbol={}, strona={}, ilość={}", symbol, side, qty);
+        return executePostRequest(PLACE_ORDER_ENDPOINT, params);
+    }
+
+    /**
      * Pobiera aktywne zlecenia dla określonej kategorii i symbolu.
      *
      * @param category kategoria (np. "linear")
@@ -150,6 +194,51 @@ public class BybitApiClient {
             // Parsowanie odpowiedzi
             String responseBody = response.body().string();
             log.debug("Odpowiedź od API Bybit: {}", responseBody);
+            return objectMapper.readTree(responseBody);
+        }
+    }
+
+    /**
+     * Wykonuje zapytanie POST do API Bybit
+     * 
+     * @param endpoint endpoint API
+     * @param params parametry zapytania
+     * @return odpowiedź w formacie JSON
+     * @throws IOException jeśli wystąpi błąd podczas komunikacji z API
+     */
+    private JsonNode executePostRequest(String endpoint, TreeMap<String, String> params) throws IOException {
+        long timestamp = Instant.now().toEpochMilli();
+        String paramsJson = objectMapper.writeValueAsString(params);
+        
+        // Oblicz podpis
+        String signature = generateSignature(timestamp, paramsJson);
+        
+        // Przygotowanie body
+        RequestBody body = RequestBody.create(
+            MediaType.parse("application/json"), 
+            paramsJson
+        );
+        
+        // Budowa zapytania z nagłówkami
+        Request request = new Request.Builder()
+                .url(baseUrl + endpoint)
+                .post(body)
+                .addHeader("Content-Type", "application/json")
+                .addHeader("X-BAPI-API-KEY", apiKey)
+                .addHeader("X-BAPI-SIGN", signature)
+                .addHeader("X-BAPI-TIMESTAMP", String.valueOf(timestamp))
+                .addHeader("X-BAPI-RECV-WINDOW", "5000")
+                .build();
+        
+        // Wykonanie zapytania
+        try (Response response = httpClient.newCall(request).execute()) {
+            if (!response.isSuccessful()) {
+                throw new IOException("Niepowodzenie zapytania: " + response.code() + " " + response.message());
+            }
+            
+            // Parsowanie odpowiedzi
+            String responseBody = response.body().string();
+            log.info("Odpowiedź od API Bybit przy otwieraniu pozycji: {}", responseBody);
             return objectMapper.readTree(responseBody);
         }
     }
