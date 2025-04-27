@@ -1,6 +1,5 @@
-package com.bybit.trade.controller;
+package com.bybit.trade.service.bybit;
 
-import com.bybit.trade.service.bybit.BybitIntegrationService;
 import com.fasterxml.jackson.databind.JsonNode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -11,7 +10,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.io.IOException;
-import com.bybit.trade.service.bybit.BybitApiClient;
 
 /**
  * Kontroler udostępniający endpoints do integracji z Bybit
