@@ -29,6 +29,8 @@ public class BybitApiClient {
     private static final String WALLET_BALANCE_ENDPOINT = "/v5/account/wallet-balance";
     private static final String ORDERS_ENDPOINT = "/v5/order/realtime";
     private static final String PLACE_ORDER_ENDPOINT = "/v5/order/create";
+    private static final String ORDERBOOK_ENDPOINT = "/v5/market/orderbook";
+    private static final String TICKERS_ENDPOINT = "/v5/market/tickers";
     private static final String HMAC_SHA256 = "HmacSHA256";
     
     private final String apiKey;
@@ -132,11 +134,12 @@ public class BybitApiClient {
             params.put("stopLoss", stopLoss);
         }
         
-        // Dodatkowe parametry
-        params.put("timeInForce", "GoodTillCancel");
-        params.put("positionIdx", "0"); // Jedno kierunkowy tryb pozycji
+        // Poprawione parametry
+        params.put("timeInForce", orderType.equals("Limit") ? "PostOnly" : "GTC");
+        params.put("positionIdx", "0"); // Tryb jednokierunkowy
+        params.put("reduceOnly", "false");
         
-        log.info("Otwieranie pozycji: symbol={}, strona={}, ilość={}", symbol, side, qty);
+        log.info("Otwieranie pozycji: symbol={}, strona={}, typ={}, ilość={}", symbol, side, orderType, qty);
         return executePostRequest(PLACE_ORDER_ENDPOINT, params);
     }
 
@@ -154,6 +157,52 @@ public class BybitApiClient {
         params.put("symbol", symbol);
         
         return executeGetRequest(ORDERS_ENDPOINT, params);
+    }
+
+    /**
+     * Pobiera aktualną cenę rynkową dla danego symbolu
+     * @param category kategoria instrumentu (np. "linear")
+     * @param symbol symbol instrumentu (np. "BTCUSDT")
+     * @return aktualna cena rynkowa
+     * @throws IOException jeśli wystąpi błąd podczas komunikacji z API
+     */
+    public double getMarketPrice(String category, String symbol) throws IOException {
+        // Najpierw próbujemy pobrać cenę z orderbooka
+        try {
+            TreeMap<String, String> params = new TreeMap<>();
+            params.put("category", category);
+            params.put("symbol", symbol);
+            params.put("limit", "1"); // Potrzebujemy tylko najlepszą cenę
+
+            JsonNode orderbook = executeGetRequest(ORDERBOOK_ENDPOINT, params);
+            
+            if (orderbook.has("result") && orderbook.get("result").has("a") && orderbook.get("result").has("b")) {
+                // Pobierz najlepszą cenę ask i bid
+                double bestAsk = Double.parseDouble(orderbook.get("result").get("a").get(0).get(0).asText());
+                double bestBid = Double.parseDouble(orderbook.get("result").get("b").get(0).get(0).asText());
+                
+                // Zwróć średnią cenę
+                return (bestAsk + bestBid) / 2.0;
+            }
+        } catch (Exception e) {
+            log.warn("Nie udało się pobrać ceny z orderbooka, próbuję z tickerów: {}", e.getMessage());
+        }
+
+        // Jeśli nie udało się pobrać z orderbooka, próbujemy z tickerów
+        TreeMap<String, String> params = new TreeMap<>();
+        params.put("category", category);
+        params.put("symbol", symbol);
+
+        JsonNode tickers = executeGetRequest(TICKERS_ENDPOINT, params);
+        
+        if (tickers.has("result") && tickers.get("result").has("list") && tickers.get("result").get("list").size() > 0) {
+            JsonNode ticker = tickers.get("result").get("list").get(0);
+            if (ticker.has("lastPrice")) {
+                return Double.parseDouble(ticker.get("lastPrice").asText());
+            }
+        }
+
+        throw new IOException("Nie udało się pobrać aktualnej ceny rynkowej dla " + symbol);
     }
 
     /**

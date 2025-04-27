@@ -1,14 +1,13 @@
 package com.bybit.trade.service.bybit;
 
+import com.bybit.trade.service.bybit.dto.OpenPositionRequestDto;
 import com.fasterxml.jackson.databind.JsonNode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
+import jakarta.validation.Valid;
 import java.io.IOException;
 
 /**
@@ -77,5 +76,18 @@ public class BybitController {
             log.error("Błąd podczas pobierania zleceń dla symbolu: {}", symbol, e);
             throw new RuntimeException("Nie udało się pobrać zleceń dla symbolu " + symbol + " z Bybit", e);
         }
+    }
+
+    /**
+     * Otwiera nową pozycję na Bybit
+     * @param request dane pozycji do otwarcia
+     * @return informacja o otwartej pozycji w formacie JSON
+     */
+    @PostMapping("/positions/open")
+    public ResponseEntity<JsonNode> openPosition(@Valid @RequestBody OpenPositionRequestDto request) {
+        log.info("Otrzymano żądanie otwarcia pozycji na Bybit: {}", request);
+        JsonNode response = bybitIntegrationService.openPosition(request);
+        log.info("Zwracam informacje o otwartej pozycji na Bybit");
+        return ResponseEntity.ok(response);
     }
 } 
