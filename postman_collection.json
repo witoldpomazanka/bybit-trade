@@ -53,49 +53,7 @@
 					"response": []
 				},
 				{
-					"name": "Bybit - Pobierz pozycje dla symbolu",
-					"request": {
-						"method": "GET",
-						"header": [
-							{
-								"key": "Accept",
-								"value": "application/json",
-								"type": "text"
-							}
-						],
-						"url": {
-							"raw": "http://localhost:8888/api/bybit/positions/symbol/BTCUSDT",
-							"protocol": "http",
-							"host": ["localhost"],
-							"port": "8888",
-							"path": ["api", "bybit", "positions", "symbol", "BTCUSDT"]
-						}
-					},
-					"response": []
-				},
-				{
-					"name": "Bybit - Pobierz zlecenia dla symbolu",
-					"request": {
-						"method": "GET",
-						"header": [
-							{
-								"key": "Accept",
-								"value": "application/json",
-								"type": "text"
-							}
-						],
-						"url": {
-							"raw": "http://localhost:8888/api/bybit/orders/symbol/BTCUSDT",
-							"protocol": "http",
-							"host": ["localhost"],
-							"port": "8888",
-							"path": ["api", "bybit", "orders", "symbol", "BTCUSDT"]
-						}
-					},
-					"response": []
-				},
-				{
-					"name": "Bybit - Otwórz pozycję LONG (Post-Only Limit)",
+					"name": "Bybit - Otwórz pozycję LONG",
 					"request": {
 						"method": "POST",
 						"header": [
@@ -107,7 +65,7 @@
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n    \"symbol\": \"BTCUSDT\",\n    \"positionType\": \"LONG\",\n    \"qty\": 0.001,\n    \"takeProfit\": null,\n    \"stopLoss\": null,\n    \"usePostOnlyLimit\": true\n}"
+							"raw": "{\n    \"symbol\": \"BTCUSDT\",\n    \"positionType\": \"LONG\",\n    \"qty\": 0.001,\n    \"usePostOnlyLimit\": true,\n    \"takeProfit\": 100000,\n    \"stopLoss\": 90000\n}"
 						},
 						"url": {
 							"raw": "http://localhost:8888/api/bybit/positions/open",
@@ -120,7 +78,7 @@
 					"response": []
 				},
 				{
-					"name": "Bybit - Otwórz pozycję LONG (Market)",
+					"name": "Bybit - Otwórz pozycję SHORT",
 					"request": {
 						"method": "POST",
 						"header": [
@@ -132,57 +90,7 @@
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n    \"symbol\": \"BTCUSDT\",\n    \"positionType\": \"LONG\",\n    \"qty\": 0.001,\n    \"takeProfit\": null,\n    \"stopLoss\": null,\n    \"usePostOnlyLimit\": false\n}"
-						},
-						"url": {
-							"raw": "http://localhost:8888/api/bybit/positions/open",
-							"protocol": "http",
-							"host": ["localhost"],
-							"port": "8888",
-							"path": ["api", "bybit", "positions", "open"]
-						}
-					},
-					"response": []
-				},
-				{
-					"name": "Bybit - Otwórz pozycję SHORT (Post-Only Limit)",
-					"request": {
-						"method": "POST",
-						"header": [
-							{
-								"key": "Content-Type",
-								"value": "application/json",
-								"type": "text"
-							}
-						],
-						"body": {
-							"mode": "raw",
-							"raw": "{\n    \"symbol\": \"BTCUSDT\",\n    \"positionType\": \"SHORT\",\n    \"qty\": 0.001,\n    \"takeProfit\": null,\n    \"stopLoss\": null,\n    \"usePostOnlyLimit\": true\n}"
-						},
-						"url": {
-							"raw": "http://localhost:8888/api/bybit/positions/open",
-							"protocol": "http",
-							"host": ["localhost"],
-							"port": "8888",
-							"path": ["api", "bybit", "positions", "open"]
-						}
-					},
-					"response": []
-				},
-				{
-					"name": "Bybit - Otwórz pozycję SHORT (Market)",
-					"request": {
-						"method": "POST",
-						"header": [
-							{
-								"key": "Content-Type",
-								"value": "application/json",
-								"type": "text"
-							}
-						],
-						"body": {
-							"mode": "raw",
-							"raw": "{\n    \"symbol\": \"BTCUSDT\",\n    \"positionType\": \"SHORT\",\n    \"qty\": 0.001,\n    \"takeProfit\": null,\n    \"stopLoss\": null,\n    \"usePostOnlyLimit\": false\n}"
+							"raw": "{\n    \"symbol\": \"BTCUSDT\",\n    \"positionType\": \"SHORT\",\n    \"qty\": 0.001,\n    \"usePostOnlyLimit\": true,\n    \"takeProfit\": 90000,\n    \"stopLoss\": 100000\n}"
 						},
 						"url": {
 							"raw": "http://localhost:8888/api/bybit/positions/open",

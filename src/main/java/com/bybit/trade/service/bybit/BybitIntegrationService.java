@@ -1,6 +1,6 @@
 package com.bybit.trade.service.bybit;
 
-import com.bybit.trade.service.bybit.dto.OpenPositionRequestDto;
+import com.bybit.trade.dto.OpenPositionRequestDto;
 import com.fasterxml.jackson.databind.JsonNode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -10,10 +10,6 @@ import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 
-/**
- * Serwis do integracji z Bybit API
- * Umożliwia pobieranie danych o otwartych pozycjach i saldzie konta
- */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -22,10 +18,6 @@ public class BybitIntegrationService {
     private static final double PRICE_OFFSET_PERCENTAGE = 0.01; // 0.01% offset dla Post-Only Limit
     private final BybitApiClient bybitApiClient;
 
-    /**
-     * Pobiera otwarte pozycje z konta Bybit
-     * @return informacja o otwartych pozycjach w formacie JSON
-     */
     public JsonNode getOpenPositions() {
         try {
             log.info("Pobieranie otwartych pozycji z Bybit");
@@ -38,10 +30,6 @@ public class BybitIntegrationService {
         }
     }
 
-    /**
-     * Pobiera informacje o saldzie konta Bybit
-     * @return informacja o saldzie konta w formacie JSON
-     */
     public JsonNode getAccountBalance() {
         try {
             log.info("Pobieranie salda konta z Bybit");
@@ -54,11 +42,6 @@ public class BybitIntegrationService {
         }
     }
 
-    /**
-     * Pobiera pozycje dla konkretnego symbolu z Bybit
-     * @param symbol symbol instrumentu (np. "BTCUSDT")
-     * @return informacja o pozycjach dla danego symbolu w formacie JSON
-     */
     public JsonNode getPositionsBySymbol(String symbol) {
         try {
             log.info("Pobieranie pozycji dla symbolu {} z Bybit", symbol);
@@ -71,31 +54,22 @@ public class BybitIntegrationService {
         }
     }
 
-    /**
-     * Otwiera nową pozycję na Bybit używając Post-Only Limit lub Market order
-     * @param request dane pozycji do otwarcia
-     * @return informacja o otwartej pozycji w formacie JSON
-     */
     public JsonNode openPosition(OpenPositionRequestDto request) {
         try {
             log.info("Otwieranie pozycji na Bybit: {}", request);
             
-            // Określ stronę transakcji na podstawie typu pozycji
             String side = request.getPositionType().equals("LONG") ? "Buy" : "Sell";
             String orderType = request.isUsePostOnlyLimit() ? "Limit" : "Market";
             
-            // Konwertuj wielkość pozycji na String
-            String qty = String.valueOf(request.getQty());
+            String qty = request.getQty().toString();
             
-            // Konwertuj take profit i stop loss na String jeśli są ustawione
             String takeProfit = request.getTakeProfit() != null ? 
-                String.valueOf(request.getTakeProfit()) : null;
+                request.getTakeProfit().toString() : null;
             String stopLoss = request.getStopLoss() != null ? 
-                String.valueOf(request.getStopLoss()) : null;
+                request.getStopLoss().toString() : null;
 
             JsonNode result;
             if (request.isUsePostOnlyLimit()) {
-                // Pobierz aktualną cenę rynkową i ustaw cenę limit z małym offsetem
                 double currentPrice = getCurrentPrice(request.getSymbol());
                 String limitPrice = calculateLimitPrice(currentPrice, side);
                 
@@ -136,9 +110,6 @@ public class BybitIntegrationService {
         }
     }
 
-    /**
-     * Pobiera aktualną cenę rynkową dla danego symbolu
-     */
     private double getCurrentPrice(String symbol) throws IOException {
         log.info("Pobieranie aktualnej ceny rynkowej dla {}", symbol);
         double price = bybitApiClient.getMarketPrice("linear", symbol);
@@ -146,11 +117,6 @@ public class BybitIntegrationService {
         return price;
     }
 
-    /**
-     * Oblicza cenę dla zlecenia Post-Only Limit
-     * Dla LONG: cena limit jest ustawiana nieco poniżej ceny rynkowej
-     * Dla SHORT: cena limit jest ustawiana nieco powyżej ceny rynkowej
-     */
     private String calculateLimitPrice(double currentPrice, String side) {
         BigDecimal price = BigDecimal.valueOf(currentPrice);
         BigDecimal offset = price.multiply(BigDecimal.valueOf(PRICE_OFFSET_PERCENTAGE))

@@ -2,7 +2,6 @@ package com.bybit.trade.service.bybit;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import okhttp3.*;
 import org.apache.commons.codec.binary.Hex;
@@ -17,17 +16,12 @@ import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
 import java.util.TreeMap;
 
-/**
- * Klient API dla Bybit
- * Implementuje podstawowe operacje komunikacji z API Bybit
- */
 @Slf4j
 @Service
 public class BybitApiClient {
 
     private static final String POSITIONS_ENDPOINT = "/v5/position/list";
     private static final String WALLET_BALANCE_ENDPOINT = "/v5/account/wallet-balance";
-    private static final String ORDERS_ENDPOINT = "/v5/order/realtime";
     private static final String PLACE_ORDER_ENDPOINT = "/v5/order/create";
     private static final String ORDERBOOK_ENDPOINT = "/v5/market/orderbook";
     private static final String TICKERS_ENDPOINT = "/v5/market/tickers";
@@ -47,72 +41,29 @@ public class BybitApiClient {
         this.objectMapper = new ObjectMapper();
     }
 
-    /**
-     * Pobiera informacje o pozycjach z Bybit
-     * 
-     * @param category kategoria instrumentu (np. "linear")
-     * @param settleCoin waluta rozliczeniowa (np. "USDT")
-     * @return informacje o pozycjach w formacie JSON
-     * @throws IOException jeśli wystąpi błąd podczas komunikacji z API
-     */
     public JsonNode getPositions(String category, String settleCoin) throws IOException {
-        // Parametry zapytania
         TreeMap<String, String> params = new TreeMap<>();
         params.put("category", category);
         params.put("settleCoin", settleCoin);
         
-        // Wykonaj zapytanie GET
         return executeGetRequest(POSITIONS_ENDPOINT, params);
     }
 
-    /**
-     * Pobiera informacje o saldzie portfela z Bybit
-     * 
-     * @param accountType typ konta (np. "UNIFIED")
-     * @return informacje o saldzie w formacie JSON
-     * @throws IOException jeśli wystąpi błąd podczas komunikacji z API
-     */
     public JsonNode getWalletBalance(String accountType) throws IOException {
-        // Parametry zapytania
         TreeMap<String, String> params = new TreeMap<>();
         params.put("accountType", accountType);
         
-        // Wykonaj zapytanie GET
         return executeGetRequest(WALLET_BALANCE_ENDPOINT, params);
     }
 
-    /**
-     * Pobiera informacje o pozycjach dla konkretnego symbolu z Bybit
-     * 
-     * @param category kategoria instrumentu (np. "linear")
-     * @param symbol symbol instrumentu (np. "BTCUSDT")
-     * @return informacje o pozycjach w formacie JSON
-     * @throws IOException jeśli wystąpi błąd podczas komunikacji z API
-     */
     public JsonNode getPositionsBySymbol(String category, String symbol) throws IOException {
-        // Parametry zapytania
         TreeMap<String, String> params = new TreeMap<>();
         params.put("category", category);
         params.put("symbol", symbol);
         
-        // Wykonaj zapytanie GET
         return executeGetRequest(POSITIONS_ENDPOINT, params);
     }
 
-    /**
-     * Otwiera nową pozycję na Bybit
-     *
-     * @param category kategoria instrumentu (np. "linear")
-     * @param symbol symbol instrumentu (np. "BTCUSDT")
-     * @param side strona transakcji ("Buy" dla long, "Sell" dla short)
-     * @param orderType typ zlecenia (np. "Market", "Limit")
-     * @param qty ilość
-     * @param price cena (opcjonalna dla zleceń typu Market)
-     * @param takeProfit cena take profit
-     * @param stopLoss cena stop loss
-     * @return odpowiedź z API zawierająca informacje o złożonym zleceniu
-     * @throws IOException jeśli wystąpi błąd podczas komunikacji z API
-     */
     public JsonNode openPosition(String category, String symbol, String side, String orderType, 
                                 String qty, String price, String takeProfit, String stopLoss) throws IOException {
         TreeMap<String, String> params = new TreeMap<>();
@@ -134,97 +85,77 @@ public class BybitApiClient {
             params.put("stopLoss", stopLoss);
         }
         
-        // Poprawione parametry
         params.put("timeInForce", orderType.equals("Limit") ? "PostOnly" : "GTC");
-        params.put("positionIdx", "0"); // Tryb jednokierunkowy
+        params.put("positionIdx", "0");
         params.put("reduceOnly", "false");
         
         log.info("Otwieranie pozycji: symbol={}, strona={}, typ={}, ilość={}", symbol, side, orderType, qty);
         return executePostRequest(PLACE_ORDER_ENDPOINT, params);
     }
 
-    /**
-     * Pobiera aktywne zlecenia dla określonej kategorii i symbolu.
-     *
-     * @param category kategoria (np. "linear")
-     * @param symbol symbol handlowy (np. "BTCUSDT")
-     * @return informacje o zleceniach w formacie JSON
-     * @throws IOException w przypadku błędu komunikacji z API
-     */
-    public JsonNode getActiveOrders(String category, String symbol) throws IOException {
+    public double getMarketPrice(String category, String symbol) throws IOException {
         TreeMap<String, String> params = new TreeMap<>();
         params.put("category", category);
         params.put("symbol", symbol);
-        
-        return executeGetRequest(ORDERS_ENDPOINT, params);
-    }
 
-    /**
-     * Pobiera aktualną cenę rynkową dla danego symbolu
-     * @param category kategoria instrumentu (np. "linear")
-     * @param symbol symbol instrumentu (np. "BTCUSDT")
-     * @return aktualna cena rynkowa
-     * @throws IOException jeśli wystąpi błąd podczas komunikacji z API
-     */
-    public double getMarketPrice(String category, String symbol) throws IOException {
-        // Najpierw próbujemy pobrać cenę z orderbooka
         try {
-            TreeMap<String, String> params = new TreeMap<>();
-            params.put("category", category);
-            params.put("symbol", symbol);
-            params.put("limit", "1"); // Potrzebujemy tylko najlepszą cenę
-
-            JsonNode orderbook = executeGetRequest(ORDERBOOK_ENDPOINT, params);
-            
-            if (orderbook.has("result") && orderbook.get("result").has("a") && orderbook.get("result").has("b")) {
+            // Najpierw próbujemy pobrać cenę z order booka
+            JsonNode orderBookResult = executeGetRequest(ORDERBOOK_ENDPOINT, params);
+            if (orderBookResult.has("result") && orderBookResult.get("result").has("a") && orderBookResult.get("result").has("b")) {
                 // Pobierz najlepszą cenę ask i bid
-                double bestAsk = Double.parseDouble(orderbook.get("result").get("a").get(0).get(0).asText());
-                double bestBid = Double.parseDouble(orderbook.get("result").get("b").get(0).get(0).asText());
-                
+                double bestAsk = Double.parseDouble(orderBookResult.get("result").get("a").get(0).get(0).asText());
+                double bestBid = Double.parseDouble(orderBookResult.get("result").get("b").get(0).get(0).asText());
                 // Zwróć średnią cenę
-                return (bestAsk + bestBid) / 2.0;
+                return (bestAsk + bestBid) / 2;
             }
         } catch (Exception e) {
-            log.warn("Nie udało się pobrać ceny z orderbooka, próbuję z tickerów: {}", e.getMessage());
+            log.warn("Nie udało się pobrać ceny z order booka, próbuję z tickerów", e);
         }
 
-        // Jeśli nie udało się pobrać z orderbooka, próbujemy z tickerów
-        TreeMap<String, String> params = new TreeMap<>();
-        params.put("category", category);
-        params.put("symbol", symbol);
-
-        JsonNode tickers = executeGetRequest(TICKERS_ENDPOINT, params);
-        
-        if (tickers.has("result") && tickers.get("result").has("list") && tickers.get("result").get("list").size() > 0) {
-            JsonNode ticker = tickers.get("result").get("list").get(0);
-            if (ticker.has("lastPrice")) {
-                return Double.parseDouble(ticker.get("lastPrice").asText());
+        // Jeśli nie udało się pobrać z order booka, próbujemy z tickerów
+        JsonNode tickersResult = executeGetRequest(TICKERS_ENDPOINT, params);
+        if (tickersResult.has("result") && tickersResult.get("result").has("list")) {
+            JsonNode firstTicker = tickersResult.get("result").get("list").get(0);
+            if (firstTicker.has("lastPrice")) {
+                return Double.parseDouble(firstTicker.get("lastPrice").asText());
             }
         }
 
-        throw new IOException("Nie udało się pobrać aktualnej ceny rynkowej dla " + symbol);
+        throw new IOException("Nie udało się pobrać ceny rynkowej");
     }
 
-    /**
-     * Wykonuje zapytanie GET do API Bybit
-     * 
-     * @param endpoint endpoint API
-     * @param params parametry zapytania
-     * @return odpowiedź w formacie JSON
-     * @throws IOException jeśli wystąpi błąd podczas komunikacji z API
-     */
+    private String buildQueryString(TreeMap<String, String> params) {
+        StringBuilder queryString = new StringBuilder();
+        params.forEach((key, value) -> {
+            if (queryString.length() > 0) {
+                queryString.append('&');
+            }
+            queryString.append(key).append('=').append(value);
+        });
+        return queryString.toString();
+    }
+
+    private String generateSignature(long timestamp, String queryString) {
+        String payload = timestamp + apiKey + "5000" + queryString;
+        try {
+            Mac sha256_HMAC = Mac.getInstance(HMAC_SHA256);
+            SecretKeySpec secret_key = new SecretKeySpec(secretKey.getBytes(StandardCharsets.UTF_8), HMAC_SHA256);
+            sha256_HMAC.init(secret_key);
+            return Hex.encodeHexString(sha256_HMAC.doFinal(payload.getBytes(StandardCharsets.UTF_8)));
+        } catch (NoSuchAlgorithmException | InvalidKeyException e) {
+            throw new RuntimeException("Błąd podczas generowania podpisu", e);
+        }
+    }
+
     private JsonNode executeGetRequest(String endpoint, TreeMap<String, String> params) throws IOException {
         long timestamp = Instant.now().toEpochMilli();
         String queryString = buildQueryString(params);
         
-        // Oblicz podpis
         String signature = generateSignature(timestamp, queryString);
         
-        // Budowa URL z parametrami
         HttpUrl.Builder urlBuilder = HttpUrl.parse(baseUrl + endpoint).newBuilder();
         params.forEach(urlBuilder::addQueryParameter);
         
-        // Budowa zapytania z nagłówkami
         Request request = new Request.Builder()
                 .url(urlBuilder.build())
                 .get()
@@ -234,41 +165,28 @@ public class BybitApiClient {
                 .addHeader("X-BAPI-RECV-WINDOW", "5000")
                 .build();
         
-        // Wykonanie zapytania
         try (Response response = httpClient.newCall(request).execute()) {
             if (!response.isSuccessful()) {
                 throw new IOException("Niepowodzenie zapytania: " + response.code() + " " + response.message());
             }
             
-            // Parsowanie odpowiedzi
             String responseBody = response.body().string();
             log.debug("Odpowiedź od API Bybit: {}", responseBody);
             return objectMapper.readTree(responseBody);
         }
     }
 
-    /**
-     * Wykonuje zapytanie POST do API Bybit
-     * 
-     * @param endpoint endpoint API
-     * @param params parametry zapytania
-     * @return odpowiedź w formacie JSON
-     * @throws IOException jeśli wystąpi błąd podczas komunikacji z API
-     */
     private JsonNode executePostRequest(String endpoint, TreeMap<String, String> params) throws IOException {
         long timestamp = Instant.now().toEpochMilli();
         String paramsJson = objectMapper.writeValueAsString(params);
         
-        // Oblicz podpis
         String signature = generateSignature(timestamp, paramsJson);
         
-        // Przygotowanie body
         RequestBody body = RequestBody.create(
             MediaType.parse("application/json"), 
             paramsJson
         );
         
-        // Budowa zapytania z nagłówkami
         Request request = new Request.Builder()
                 .url(baseUrl + endpoint)
                 .post(body)
@@ -279,55 +197,14 @@ public class BybitApiClient {
                 .addHeader("X-BAPI-RECV-WINDOW", "5000")
                 .build();
         
-        // Wykonanie zapytania
         try (Response response = httpClient.newCall(request).execute()) {
             if (!response.isSuccessful()) {
                 throw new IOException("Niepowodzenie zapytania: " + response.code() + " " + response.message());
             }
             
-            // Parsowanie odpowiedzi
             String responseBody = response.body().string();
             log.info("Odpowiedź od API Bybit przy otwieraniu pozycji: {}", responseBody);
             return objectMapper.readTree(responseBody);
-        }
-    }
-
-    /**
-     * Buduje string zapytania z parametrów
-     * 
-     * @param params parametry zapytania
-     * @return string zapytania
-     */
-    private String buildQueryString(TreeMap<String, String> params) {
-        StringBuilder sb = new StringBuilder();
-        
-        params.forEach((key, value) -> {
-            if (sb.length() > 0) {
-                sb.append("&");
-            }
-            sb.append(key).append("=").append(value);
-        });
-        
-        return sb.toString();
-    }
-
-    /**
-     * Generuje podpis dla zapytania API Bybit
-     * 
-     * @param timestamp znacznik czasu w milisekundach
-     * @param queryString string zapytania
-     * @return podpis HMAC-SHA256 w formie heksadecymalnej
-     */
-    private String generateSignature(long timestamp, String queryString) {
-        try {
-            String payload = timestamp + apiKey + "5000" + queryString;
-            Mac hmacSha256 = Mac.getInstance(HMAC_SHA256);
-            SecretKeySpec secretKeySpec = new SecretKeySpec(secretKey.getBytes(StandardCharsets.UTF_8), HMAC_SHA256);
-            hmacSha256.init(secretKeySpec);
-            return Hex.encodeHexString(hmacSha256.doFinal(payload.getBytes(StandardCharsets.UTF_8)));
-        } catch (NoSuchAlgorithmException | InvalidKeyException e) {
-            log.error("Błąd podczas generowania podpisu", e);
-            throw new RuntimeException("Nie można wygenerować podpisu dla zapytania API", e);
         }
     }
 } 
