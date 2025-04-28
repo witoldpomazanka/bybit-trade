@@ -53,7 +53,7 @@
 					"response": []
 				},
 				{
-					"name": "Bybit - Otwórz pozycję LONG",
+					"name": "Bybit - Otwórz pozycję LONG (10 USDT, dźwignia x20)",
 					"request": {
 						"method": "POST",
 						"header": [
@@ -65,7 +65,7 @@
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n    \"symbol\": \"BTCUSDT\",\n    \"positionType\": \"LONG\",\n    \"qty\": 0.001,\n    \"usePostOnlyLimit\": true,\n    \"takeProfit\": 100000,\n    \"stopLoss\": 90000\n}"
+							"raw": "{\n    \"coin\": \"BTC\",\n    \"positionType\": \"LONG\",\n    \"usdtAmount\": 10.0,\n    \"leverage\": 20,\n    \"usePostOnlyLimit\": true,\n    \"takeProfit\": 100000,\n    \"stopLoss\": 50000\n}"
 						},
 						"url": {
 							"raw": "http://localhost:8888/api/bybit/positions/open",
@@ -78,7 +78,7 @@
 					"response": []
 				},
 				{
-					"name": "Bybit - Otwórz pozycję SHORT",
+					"name": "Bybit - Otwórz pozycję SHORT (10 USDT, domyślna dźwignia x10)",
 					"request": {
 						"method": "POST",
 						"header": [
@@ -90,7 +90,57 @@
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n    \"symbol\": \"BTCUSDT\",\n    \"positionType\": \"SHORT\",\n    \"qty\": 0.001,\n    \"usePostOnlyLimit\": true,\n    \"takeProfit\": 90000,\n    \"stopLoss\": 100000\n}"
+							"raw": "{\n    \"coin\": \"BTC\",\n    \"positionType\": \"SHORT\",\n    \"usdtAmount\": 10.0,\n    \"usePostOnlyLimit\": true,\n    \"takeProfit\": 50000,\n    \"stopLoss\": 100000\n}"
+						},
+						"url": {
+							"raw": "http://localhost:8888/api/bybit/positions/open",
+							"protocol": "http",
+							"host": ["localhost"],
+							"port": "8888",
+							"path": ["api", "bybit", "positions", "open"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Bybit - Otwórz pozycję LONG (minimalny limit, dźwignia x5)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"coin\": \"BTC\",\n    \"positionType\": \"LONG\",\n    \"usdtAmount\": 5.0,\n    \"leverage\": 5,\n    \"usePostOnlyLimit\": true\n}"
+						},
+						"url": {
+							"raw": "http://localhost:8888/api/bybit/positions/open",
+							"protocol": "http",
+							"host": ["localhost"],
+							"port": "8888",
+							"path": ["api", "bybit", "positions", "open"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Bybit - Otwórz pozycję ETH (5 USDT, dźwignia x25)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"coin\": \"ETH\",\n    \"positionType\": \"LONG\",\n    \"usdtAmount\": 5.0,\n    \"leverage\": 25,\n    \"usePostOnlyLimit\": false\n}"
 						},
 						"url": {
 							"raw": "http://localhost:8888/api/bybit/positions/open",

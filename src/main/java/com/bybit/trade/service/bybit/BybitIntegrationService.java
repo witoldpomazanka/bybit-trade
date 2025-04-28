@@ -16,6 +16,11 @@ import java.math.RoundingMode;
 public class BybitIntegrationService {
 
     private static final double PRICE_OFFSET_PERCENTAGE = 0.01; // 0.01% offset dla Post-Only Limit
+    private static final BigDecimal MIN_NOTIONAL_VALUE = new BigDecimal("5.0"); // Minimalna wartość zamówienia w USDT
+    private static final BigDecimal MIN_BTC_QTY = new BigDecimal("0.001"); // Minimalna ilość BTC
+    private static final BigDecimal MIN_ETH_QTY = new BigDecimal("0.01"); // Minimalna ilość ETH
+    private static final int DEFAULT_LEVERAGE = 10; // Domyślna dźwignia x10
+    
     private final BybitApiClient bybitApiClient;
 
     public JsonNode getOpenPositions() {
@@ -42,26 +47,63 @@ public class BybitIntegrationService {
         }
     }
 
-    public JsonNode getPositionsBySymbol(String symbol) {
-        try {
-            log.info("Pobieranie pozycji dla symbolu {} z Bybit", symbol);
-            JsonNode result = bybitApiClient.getPositionsBySymbol("linear", symbol);
-            log.info("Pobrano dane o pozycjach dla symbolu {}: {}", symbol, result);
-            return result;
-        } catch (IOException e) {
-            log.error("Błąd podczas pobierania pozycji dla symbolu {} z Bybit", symbol, e);
-            throw new RuntimeException("Nie udało się pobrać pozycji dla symbolu " + symbol + " z Bybit", e);
-        }
-    }
-
     public JsonNode openPosition(OpenPositionRequestDto request) {
         try {
-            log.info("Otwieranie pozycji na Bybit: {}", request);
+            // Budujemy pełny symbol pary walutowej
+            String symbol = request.getCoin().toUpperCase() + "USDT";
+            log.info("Otwieranie pozycji na Bybit: {} (symbol: {})", request, symbol);
+            
+            // Ustalenie dźwigni
+            int leverage = request.getLeverage() != null ? request.getLeverage() : DEFAULT_LEVERAGE;
+            log.info("Używanie dźwigni {}x dla symbolu {}", leverage, symbol);
+            
+            // Ustawienie dźwigni przed otwarciem pozycji
+            JsonNode leverageResult = bybitApiClient.setLeverage("linear", symbol, String.valueOf(leverage));
+            log.info("Wynik ustawienia dźwigni: {}", leverageResult);
             
             String side = request.getPositionType().equals("LONG") ? "Buy" : "Sell";
             String orderType = request.isUsePostOnlyLimit() ? "Limit" : "Market";
             
-            String qty = request.getQty().toString();
+            // Pobieranie aktualnej ceny rynkowej
+            double currentPrice = getCurrentPrice(symbol);
+            log.info("Aktualna cena rynkowa dla {}: {}", symbol, currentPrice);
+            
+            // Obliczanie ilości kontraktów na podstawie kwoty USDT i aktualnej ceny
+            BigDecimal price = BigDecimal.valueOf(currentPrice);
+            BigDecimal usdtAmount = BigDecimal.valueOf(request.getUsdtAmount());
+            
+            // Sprawdzenie, czy kwota USDT spełnia minimalne wymagania
+            if (usdtAmount.compareTo(MIN_NOTIONAL_VALUE) < 0) {
+                log.warn("Kwota USDT {} jest mniejsza niż minimalna wymagana wartość {}. Ustawiam minimalną wartość.", 
+                    usdtAmount, MIN_NOTIONAL_VALUE);
+                usdtAmount = MIN_NOTIONAL_VALUE;
+            }
+            
+            BigDecimal quantity = usdtAmount.divide(price, 8, RoundingMode.HALF_UP);
+            
+            // Sprawdzenie minimalnych limitów dla poszczególnych symboli
+            BigDecimal minQty;
+            if (request.getCoin().toUpperCase().equals("BTC")) {
+                minQty = MIN_BTC_QTY;
+            } else if (request.getCoin().toUpperCase().equals("ETH")) {
+                minQty = MIN_ETH_QTY;
+            } else {
+                // Dla innych symboli przyjmujemy bezpieczną wartość
+                minQty = new BigDecimal("0.01");
+            }
+            
+            if (quantity.compareTo(minQty) < 0) {
+                log.warn("Obliczona ilość {} jest mniejsza niż minimalna wymagana ilość {} dla {}. Ustawiam minimalną ilość.", 
+                    quantity, minQty, symbol);
+                quantity = minQty;
+            }
+            
+            // Zaokrąglenie ilości kontraktów do 5 miejsc po przecinku
+            quantity = quantity.setScale(5, RoundingMode.HALF_UP);
+            String qty = quantity.toString();
+            
+            log.info("Przeliczono kwotę {} USDT na {} kontraktów przy cenie {}", 
+                     request.getUsdtAmount(), qty, currentPrice);
             
             String takeProfit = request.getTakeProfit() != null ? 
                 request.getTakeProfit().toString() : null;
@@ -70,15 +112,14 @@ public class BybitIntegrationService {
 
             JsonNode result;
             if (request.isUsePostOnlyLimit()) {
-                double currentPrice = getCurrentPrice(request.getSymbol());
                 String limitPrice = calculateLimitPrice(currentPrice, side);
                 
-                log.info("Otwieranie pozycji Post-Only Limit: symbol={}, strona={}, typ={}, cena={}", 
-                    request.getSymbol(), side, orderType, limitPrice);
+                log.info("Otwieranie pozycji Post-Only Limit: symbol={}, strona={}, typ={}, ilość={}, cena={}", 
+                    symbol, side, orderType, qty, limitPrice);
                 
                 result = bybitApiClient.openPosition(
                     "linear",
-                    request.getSymbol(),
+                    symbol,
                     side,
                     orderType,
                     qty,
@@ -87,12 +128,12 @@ public class BybitIntegrationService {
                     stopLoss
                 );
             } else {
-                log.info("Otwieranie pozycji Market: symbol={}, strona={}, typ={}", 
-                    request.getSymbol(), side, orderType);
+                log.info("Otwieranie pozycji Market: symbol={}, strona={}, typ={}, ilość={}", 
+                    symbol, side, orderType, qty);
                 
                 result = bybitApiClient.openPosition(
                     "linear",
-                    request.getSymbol(),
+                    symbol,
                     side,
                     orderType,
                     qty,

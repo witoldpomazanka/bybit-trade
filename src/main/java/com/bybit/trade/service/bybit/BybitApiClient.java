@@ -25,6 +25,7 @@ public class BybitApiClient {
     private static final String PLACE_ORDER_ENDPOINT = "/v5/order/create";
     private static final String ORDERBOOK_ENDPOINT = "/v5/market/orderbook";
     private static final String TICKERS_ENDPOINT = "/v5/market/tickers";
+    private static final String SET_LEVERAGE_ENDPOINT = "/v5/position/set-leverage";
     private static final String HMAC_SHA256 = "HmacSHA256";
     
     private final String apiKey;
@@ -56,12 +57,15 @@ public class BybitApiClient {
         return executeGetRequest(WALLET_BALANCE_ENDPOINT, params);
     }
 
-    public JsonNode getPositionsBySymbol(String category, String symbol) throws IOException {
+    public JsonNode setLeverage(String category, String symbol, String leverage) throws IOException {
         TreeMap<String, String> params = new TreeMap<>();
         params.put("category", category);
         params.put("symbol", symbol);
+        params.put("buyLeverage", leverage);
+        params.put("sellLeverage", leverage);
         
-        return executeGetRequest(POSITIONS_ENDPOINT, params);
+        log.info("Ustawianie dźwigni dla symbolu {}: {}x", symbol, leverage);
+        return executePostRequest(SET_LEVERAGE_ENDPOINT, params);
     }
 
     public JsonNode openPosition(String category, String symbol, String side, String orderType, 
@@ -203,7 +207,7 @@ public class BybitApiClient {
             }
             
             String responseBody = response.body().string();
-            log.info("Odpowiedź od API Bybit przy otwieraniu pozycji: {}", responseBody);
+            log.info("Odpowiedź od API Bybit: {}", responseBody);
             return objectMapper.readTree(responseBody);
         }
     }

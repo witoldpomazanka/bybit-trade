@@ -10,15 +10,18 @@ import lombok.Data;
 public class OpenPositionRequestDto {
     
     @NotBlank(message = "Symbol nie może być pusty")
-    private String symbol;
+    private String coin;
     
     @NotBlank(message = "Typ pozycji nie może być pusty")
     @Pattern(regexp = "^(LONG|SHORT)$", message = "Typ pozycji musi być 'LONG' lub 'SHORT'")
     private String positionType;
     
-    @NotNull(message = "Wielkość pozycji nie może być pusta")
-    @Positive(message = "Wielkość pozycji musi być większa od 0")
-    private Double qty;
+    @NotNull(message = "Kwota USDT nie może być pusta")
+    @Positive(message = "Kwota USDT musi być większa od 0")
+    private Double usdtAmount;
+    
+    // Opcjonalna dźwignia, domyślnie null (co oznacza użycie dźwigni x10)
+    private Integer leverage;
     
     private Double takeProfit;
     private Double stopLoss;
