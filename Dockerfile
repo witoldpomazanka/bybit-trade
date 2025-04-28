@@ -1,4 +1,4 @@
-FROM maven:3.8.6-eclipse-temurin-17-alpine AS build
+FROM maven:3.8.6-eclipse-temurin-17 AS build
 WORKDIR /app
 
 # Kopiujemy pliki konfiguracyjne Mavena
@@ -14,7 +14,7 @@ COPY src ./src
 RUN mvn package -DskipTests
 
 # Etap uruchomieniowy
-FROM eclipse-temurin:17-jre-alpine
+FROM eclipse-temurin:17-jre
 WORKDIR /app
 
 # Kopiujemy zbudowaną aplikację z poprzedniego etapu

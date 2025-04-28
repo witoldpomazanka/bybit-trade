@@ -32,28 +32,16 @@ BYBIT_API_SECRET=twój_sekret_api
 BYBIT_TESTNET=true   # true dla środowiska testowego, false dla produkcyjnego
 ```
 
-### Uruchomienie lokalne
+# Budowanie obrazu Docker
 
-1. Sklonuj repozytorium
-2. Skonfiguruj zmienne środowiskowe
-3. Uruchom PostgreSQL
-4. Uruchom aplikację za pomocą skryptu:
+   ```bash
+   docker build -t bybit-trade .
+   ```
 
-```
-./run-local.sh
-```
 
-Lub na Windows:
-
-```
-run-local.bat
-```
-
-### Uruchomienie w Dockerze
-
-```
-docker-compose up -d
-```
+   ```bash
+   docker rmi bybit-trade
+   ```
 
 ## Korzystanie z API
 
