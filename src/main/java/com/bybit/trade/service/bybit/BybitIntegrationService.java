@@ -144,6 +144,20 @@ public class BybitIntegrationService {
                     log.info("Rzeczywista kwota USDT po dostosowaniu do minimalnego limitu: {}", 
                              actualUsdtAmount.setScale(2, RoundingMode.HALF_UP));
                 }
+                
+                // Pobierz krok ilości (qtyStep) i zaokrąglij ilość
+                BigDecimal qtyStep = getQuantityStep(symbol);
+                log.info("Pobrany z API krok ilości (qtyStep) dla {}: {}", symbol, qtyStep);
+                
+                // Zaokrąglij ilość do prawidłowej wartości
+                BigDecimal originalQuantity = quantity;
+                quantity = roundToValidQuantity(quantity, qtyStep);
+                
+                if (originalQuantity.compareTo(quantity) != 0) {
+                    log.info("Zaokrąglono ilość z {} do {} zgodnie z krokiem ilości {} dla {}", 
+                            originalQuantity, quantity, qtyStep, symbol);
+                }
+                
             } catch (Exception e) {
                 // Jeśli wystąpi błąd podczas pobierania danych z API, użyj zdefiniowanych wcześniej limitów
                 log.warn("Nie udało się pobrać minimalnego limitu z API dla {}. Używam predefiniowanej wartości.", symbol, e);
@@ -160,8 +174,7 @@ public class BybitIntegrationService {
                 }
             }
             
-            // Zaokrąglenie ilości kontraktów do 8 miejsc po przecinku
-            quantity = quantity.setScale(8, RoundingMode.HALF_UP);
+            // Zaokrąglenie ilości kontraktów do odpowiedniej skali 
             String qty = quantity.toString();
             
             log.info("Przeliczono kwotę {} USDT na {} kontraktów przy cenie {}", 
@@ -253,5 +266,46 @@ public class BybitIntegrationService {
         
         // Jeśli nie udało się znaleźć danych, rzuć wyjątek
         throw new IOException("Nie udało się pobrać minimalnej ilości zamówienia dla symbolu " + symbol);
+    }
+    
+    /**
+     * Pobiera krok ilości (qtyStep) dla danego symbolu z API Bybit
+     */
+    private BigDecimal getQuantityStep(String symbol) throws IOException {
+        // Pobierz informacje o instrumencie z API Bybit
+        JsonNode instrumentInfo = bybitApiClient.getInstrumentsInfo("linear", symbol);
+        
+        if (instrumentInfo.has("result") && instrumentInfo.get("result").has("list")) {
+            JsonNode instrumentList = instrumentInfo.get("result").get("list");
+            if (instrumentList.isArray() && instrumentList.size() > 0) {
+                JsonNode instrument = instrumentList.get(0);
+                
+                // Sprawdź, czy instrument zawiera informacje o lotSizeFilter i qtyStep
+                if (instrument.has("lotSizeFilter") && instrument.get("lotSizeFilter").has("qtyStep")) {
+                    String qtyStepStr = instrument.get("lotSizeFilter").get("qtyStep").asText();
+                    return new BigDecimal(qtyStepStr);
+                }
+            }
+        }
+        
+        // Jeśli nie udało się znaleźć danych, rzuć wyjątek
+        throw new IOException("Nie udało się pobrać kroku ilości (qtyStep) dla symbolu " + symbol);
+    }
+    
+    /**
+     * Zaokrągla ilość kontraktów zgodnie z wymaganiami dla danego symbolu
+     */
+    private BigDecimal roundToValidQuantity(BigDecimal quantity, BigDecimal qtyStep) {
+        if (qtyStep.compareTo(BigDecimal.ZERO) == 0) {
+            return quantity; // Unikamy dzielenia przez zero
+        }
+        
+        // Zaokrąglamy w dół do najbliższej wielokrotności qtyStep
+        BigDecimal divided = quantity.divide(qtyStep, 0, RoundingMode.DOWN);
+        BigDecimal result = divided.multiply(qtyStep);
+        
+        // Upewniamy się, że liczba miejsc po przecinku nie przekracza skali qtyStep
+        int scale = Math.max(0, qtyStep.scale());
+        return result.setScale(scale, RoundingMode.DOWN);
     }
 } 
