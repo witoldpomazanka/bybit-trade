@@ -180,6 +180,20 @@ public class BybitIntegrationService {
                             originalQuantity, quantity, qtyStep, symbol);
                 }
                 
+                // Sprawdź, czy po zaokrągleniu wartość zlecenia spełnia minimalne wymagania
+                BigDecimal orderValue = quantity.multiply(price);
+                if (orderValue.compareTo(MIN_NOTIONAL_VALUE) < 0) {
+                    log.warn("Wartość zlecenia {} USDT jest mniejsza niż minimalna wymagana wartość {} USDT po zaokrągleniu ilości. Dodaję jeden krok ilości.", 
+                            orderValue.setScale(2, RoundingMode.HALF_UP), MIN_NOTIONAL_VALUE);
+                    
+                    // Dodaj jeden krok ilości do obecnej wartości
+                    quantity = quantity.add(qtyStep);
+                    
+                    log.info("Dostosowano ilość z {} do {} (dodano jeden krok {}), co daje wartość zlecenia {} USDT", 
+                            quantity.subtract(qtyStep), quantity, qtyStep, 
+                            quantity.multiply(price).setScale(2, RoundingMode.HALF_UP));
+                }
+                
             } catch (Exception e) {
                 // Jeśli wystąpi błąd podczas pobierania danych z API, użyj zdefiniowanych wcześniej limitów
                 log.warn("Nie udało się pobrać minimalnego limitu z API dla {}. Używam predefiniowanej wartości.", symbol, e);
