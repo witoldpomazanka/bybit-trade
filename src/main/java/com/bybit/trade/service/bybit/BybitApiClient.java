@@ -15,6 +15,7 @@ import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
 import java.util.TreeMap;
+import java.util.Map;
 
 @Slf4j
 @Service
@@ -27,6 +28,7 @@ public class BybitApiClient {
     private static final String TICKERS_ENDPOINT = "/v5/market/tickers";
     private static final String SET_LEVERAGE_ENDPOINT = "/v5/position/set-leverage";
     private static final String INSTRUMENTS_INFO_ENDPOINT = "/v5/market/instruments-info";
+    private static final String SET_TRADING_STOP_ENDPOINT = "/v5/position/trading-stop";
     private static final String HMAC_SHA256 = "HmacSHA256";
     
     private final String apiKey;
@@ -227,6 +229,34 @@ public class BybitApiClient {
             log.warn("Błąd podczas sprawdzania, czy symbol {} jest obsługiwany: {}", symbol, e.getMessage());
             return false;
         }
+    }
+
+    /**
+     * Ustawia take profit, stop loss lub trailing stop dla pozycji
+     * @param params parametry requestu:
+     *               - category: linear/inverse
+     *               - symbol: np. BTCUSDT
+     *               - takeProfit: cena TP
+     *               - stopLoss: cena SL
+     *               - tpslMode: Full/Partial
+     *               - tpSize: ilość kontraktów dla TP (w trybie Partial)
+     *               - slSize: ilość kontraktów dla SL (w trybie Partial)
+     *               - tpOrderType: Market/Limit
+     *               - slOrderType: Market/Limit
+     *               - tpLimitPrice: cena limitowa dla TP (jeśli typ Limit)
+     *               - slLimitPrice: cena limitowa dla SL (jeśli typ Limit)
+     *               - positionIdx: 0 (one-way), 1 (hedge buy), 2 (hedge sell)
+     * @throws IOException jeśli wystąpi błąd podczas wywołania API
+     */
+    public JsonNode setTradingStop(Map<String, Object> params) throws IOException {
+        TreeMap<String, String> stringParams = new TreeMap<>();
+        // Konwertuj wszystkie parametry na String
+        for (Map.Entry<String, Object> entry : params.entrySet()) {
+            stringParams.put(entry.getKey(), entry.getValue().toString());
+        }
+        
+        log.info("Ustawianie TP/SL dla pozycji: {}", params);
+        return executePostRequest(SET_TRADING_STOP_ENDPOINT, stringParams);
     }
 
     private String buildQueryString(TreeMap<String, String> params) {

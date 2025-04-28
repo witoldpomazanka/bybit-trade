@@ -393,37 +393,121 @@ public class BybitIntegrationService {
         String coin = payload.get("coin").toString();
         String type = payload.get("type").toString();
         Integer leverage = payload.get("leverage") != null ? Integer.parseInt(payload.get("leverage").toString()) : null;
-        // Obsługa Double/String dla TP/SL
         String takeProfit = payload.get("takeProfit") != null ? payload.get("takeProfit").toString() : null;
         String stopLoss = payload.get("stopLoss") != null ? payload.get("stopLoss").toString() : null;
         // Szukaj TP1-TP5 jeśli nie ma takeProfit
         String[] tps = new String[5];
+        int tpCount = 0;
         for (int i = 1; i <= 5; i++) {
             Object tpVal = payload.get("tp"+i);
-            tps[i-1] = tpVal != null ? tpVal.toString() : null;
+            if (tpVal != null) {
+                tps[tpCount++] = tpVal.toString();
+            }
         }
-        // Ustaw na sztywno 10 USDT
         double usdtAmount = 10.0;
-        // Buduj DTO
         OpenPositionRequestDto req = new OpenPositionRequestDto();
         req.setCoin(coin);
         req.setUsdtAmount(usdtAmount);
         req.setLeverage(leverage);
-        if (takeProfit != null) req.setTakeProfit(Double.valueOf(takeProfit));
-        if (stopLoss != null) req.setStopLoss(Double.valueOf(stopLoss));
-        // LONG/SHORT
         boolean isLong = type.equalsIgnoreCase("LONG");
-        // Jeśli jest takeProfit, użyj go, jeśli nie, szukaj tp1-tp5
-        if (takeProfit != null) {
+        // 1. Brak TP i brak tpX -> pozycja bez TP
+        if (takeProfit == null && tpCount == 0) {
+            if (stopLoss != null) req.setStopLoss(Double.valueOf(stopLoss));
             return isLong ? openLongMarketPosition(req) : openShortMarketPosition(req);
-        } else {
-            for (String tp : tps) {
-                if (tp != null) {
-                    req.setTakeProfit(Double.valueOf(tp));
-                    break;
+        }
+        // 2. Jest tylko takeProfit (i brak tpX) -> pełny TP
+        if (takeProfit != null && tpCount == 0) {
+            req.setTakeProfit(Double.valueOf(takeProfit));
+            if (stopLoss != null) req.setStopLoss(Double.valueOf(stopLoss));
+            return isLong ? openLongMarketPosition(req) : openShortMarketPosition(req);
+        }
+        // 3. Są tp1-tp5 (może być też takeProfit, ale ignorujemy go na rzecz tpX)
+        // Otwórz pozycję market na całość
+        if (stopLoss != null) req.setStopLoss(Double.valueOf(stopLoss));
+        JsonNode openResult = isLong ? openLongMarketPosition(req) : openShortMarketPosition(req);
+        // Pozycja otwarta, teraz częściowe TP
+        if (tpCount > 0) {
+            // Pobierz wielkość pozycji (można założyć, że to ilość kontraktów z openResult lub z wyliczenia)
+            // Tu uproszczenie: dzielimy całość na równe części
+            double[] tpPercents = new double[tpCount];
+            for (int i = 0; i < tpCount; i++) tpPercents[i] = 1.0 / tpCount;
+            // Pobierz symbol (po otwarciu pozycji symbol może być np. 1000PEPEUSDT, więc najlepiej wyciągnąć z openResult lub ponownie znaleźć symbol)
+            String symbol = findSymbolAfterOpen(coin);
+            String category = findCategoryAfterOpen(symbol);
+            double totalQty = getOpenedPositionQty(symbol, category); // do zaimplementowania: pobierz ilość kontraktów z otwartej pozycji
+            for (int i = 0; i < tpCount; i++) {
+                double tpSize = Math.floor(totalQty * tpPercents[i]);
+                if (i == tpCount - 1) {
+                    // Ostatni TP dostaje resztę (żeby suma się zgadzała)
+                    tpSize = totalQty - Math.floor(totalQty * tpPercents[0]) * (tpCount - 1);
+                }
+                // Przygotuj request na częściowy TP
+                Map<String, Object> tpReq = new java.util.HashMap<>();
+                tpReq.put("category", category);
+                tpReq.put("symbol", symbol);
+                tpReq.put("tpslMode", "Partial");
+                tpReq.put("tpOrderType", "Market");
+                tpReq.put("tpSize", String.valueOf((int)tpSize));
+                tpReq.put("takeProfit", tps[i]);
+                tpReq.put("positionIdx", 0); // one-way mode
+                if (i == 0 && stopLoss != null) {
+                    tpReq.put("stopLoss", stopLoss);
+                }
+                // Wywołaj endpoint /v5/position/trading-stop (do zaimplementowania metoda callBybitTradingStop(tpReq))
+                callBybitTradingStop(tpReq);
+            }
+        }
+        return openResult;
+    }
+
+    // --- METODY POMOCNICZE DO CZĘŚCIOWYCH TP ---
+    /**
+     * Zwraca symbol kontraktu po otwarciu pozycji (na podstawie coina)
+     */
+    private String findSymbolAfterOpen(String coin) {
+        try {
+            return bybitApiClient.findCorrectSymbol(coin);
+        } catch (Exception e) {
+            throw new RuntimeException("Nie udało się znaleźć symbolu dla coina: " + coin, e);
+        }
+    }
+
+    /**
+     * Zwraca kategorię kontraktu (zawsze 'linear' dla USDT)
+     */
+    private String findCategoryAfterOpen(String symbol) {
+        return "linear";
+    }
+
+    /**
+     * Pobiera ilość kontraktów otwartej pozycji dla danego symbolu i kategorii
+     */
+    private double getOpenedPositionQty(String symbol, String category) {
+        try {
+            JsonNode positions = bybitApiClient.getPositions(category, "USDT");
+            if (positions.has("result") && positions.get("result").has("list")) {
+                for (JsonNode pos : positions.get("result").get("list")) {
+                    if (pos.has("symbol") && symbol.equals(pos.get("symbol").asText())) {
+                        if (pos.has("size")) {
+                            return pos.get("size").asDouble();
+                        }
+                    }
                 }
             }
-            return isLong ? openLongMarketPosition(req) : openShortMarketPosition(req);
+        } catch (Exception e) {
+            throw new RuntimeException("Nie udało się pobrać ilości kontraktów dla symbolu: " + symbol, e);
+        }
+        throw new RuntimeException("Nie znaleziono otwartej pozycji dla symbolu: " + symbol);
+    }
+
+    /**
+     * Wywołuje endpoint Bybit do ustawienia częściowego TP/SL
+     */
+    private void callBybitTradingStop(Map<String, Object> tpReq) {
+        try {
+            bybitApiClient.setTradingStop(tpReq);
+        } catch (Exception e) {
+            throw new RuntimeException("Nie udało się ustawić częściowego TP/SL: " + tpReq, e);
         }
     }
 } 
