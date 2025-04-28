@@ -163,45 +163,29 @@ public class BybitApiClient {
      * @throws IOException jeśli nie udało się znaleźć symbolu
      */
     public String findCorrectSymbol(String coin) throws IOException {
-        log.info("Wyszukiwanie prawidłowego symbolu dla coina: {}", coin);
-        
-        // Najpierw sprawdźmy standardowy symbol (coin + USDT)
         String standardSymbol = coin.toUpperCase() + "USDT";
-        
-        // Pobierz wszystkie instrumenty z kategorii linear
         TreeMap<String, String> params = new TreeMap<>();
         params.put("category", "linear");
-        
         JsonNode instrumentsInfo = executeGetRequest(INSTRUMENTS_INFO_ENDPOINT, params);
-        
         if (instrumentsInfo.has("result") && instrumentsInfo.get("result").has("list")) {
             JsonNode instrumentsList = instrumentsInfo.get("result").get("list");
-            
             if (instrumentsList.isArray() && instrumentsList.size() > 0) {
-                // Najpierw sprawdź, czy standardowy symbol jest dostępny
                 for (JsonNode instrument : instrumentsList) {
                     if (instrument.has("symbol") && standardSymbol.equals(instrument.get("symbol").asText())) {
-                        log.info("Znaleziono standardowy symbol: {}", standardSymbol);
                         return standardSymbol;
                     }
                 }
-                
-                // Jeśli standardowy symbol nie jest dostępny, szukaj wariantów
-                // Np. dla PEPE może to być 1000PEPEUSDT
                 String coinUpperCase = coin.toUpperCase();
                 for (JsonNode instrument : instrumentsList) {
                     if (instrument.has("symbol")) {
                         String symbol = instrument.get("symbol").asText();
                         if (symbol.contains(coinUpperCase) && symbol.endsWith("USDT")) {
-                            log.info("Znaleziono alternatywny symbol dla {}: {}", coin, symbol);
                             return symbol;
                         }
                     }
                 }
             }
         }
-        
-        log.error("Nie znaleziono prawidłowego symbolu dla coina: {}", coin);
         throw new IOException("Nie znaleziono prawidłowego symbolu kontraktu dla coina: " + coin);
     }
     

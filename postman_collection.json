@@ -53,7 +53,7 @@
 					"response": []
 				},
 				{
-					"name": "Bybit - LONG/LIMIT (BTC, 10 USDT, dźwignia x20)",
+					"name": "Bybit - MARKET/ADVANCED (margin, dźwignia, TP/SL, multi-TP)",
 					"request": {
 						"method": "POST",
 						"header": [
@@ -65,132 +65,7 @@
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n    \"coin\": \"BTC\",\n    \"usdtAmount\": 10.0,\n    \"leverage\": 20,\n    \"takeProfit\": 100000,\n    \"stopLoss\": 50000\n}"
-						},
-						"url": {
-							"raw": "http://localhost:8888/api/bybit/positions/long/limit",
-							"protocol": "http",
-							"host": ["localhost"],
-							"port": "8888",
-							"path": ["api", "bybit", "positions", "long", "limit"]
-						}
-					},
-					"response": []
-				},
-				{
-					"name": "Bybit - SHORT/MARKET (BTC, 10 USDT, domyślna dźwignia x2)",
-					"request": {
-						"method": "POST",
-						"header": [
-							{
-								"key": "Content-Type",
-								"value": "application/json",
-								"type": "text"
-							}
-						],
-						"body": {
-							"mode": "raw",
-							"raw": "{\n    \"coin\": \"BTC\",\n    \"usdtAmount\": 10.0,\n    \"takeProfit\": 50000,\n    \"stopLoss\": 100000\n}"
-						},
-						"url": {
-							"raw": "http://localhost:8888/api/bybit/positions/short/market",
-							"protocol": "http",
-							"host": ["localhost"],
-							"port": "8888",
-							"path": ["api", "bybit", "positions", "short", "market"]
-						}
-					},
-					"response": []
-				},
-				{
-					"name": "Bybit - LONG/LIMIT (BTC, minimalny limit, dźwignia x5)",
-					"request": {
-						"method": "POST",
-						"header": [
-							{
-								"key": "Content-Type",
-								"value": "application/json",
-								"type": "text"
-							}
-						],
-						"body": {
-							"mode": "raw",
-							"raw": "{\n    \"coin\": \"BTC\",\n    \"usdtAmount\": 5.0,\n    \"leverage\": 5\n}"
-						},
-						"url": {
-							"raw": "http://localhost:8888/api/bybit/positions/long/limit",
-							"protocol": "http",
-							"host": ["localhost"],
-							"port": "8888",
-							"path": ["api", "bybit", "positions", "long", "limit"]
-						}
-					},
-					"response": []
-				},
-				{
-					"name": "Bybit - LONG/MARKET (ETH, 5 USDT, dźwignia x25)",
-					"request": {
-						"method": "POST",
-						"header": [
-							{
-								"key": "Content-Type",
-								"value": "application/json",
-								"type": "text"
-							}
-						],
-						"body": {
-							"mode": "raw",
-							"raw": "{\n    \"coin\": \"ETH\",\n    \"usdtAmount\": 5.0,\n    \"leverage\": 25\n}"
-						},
-						"url": {
-							"raw": "http://localhost:8888/api/bybit/positions/long/market",
-							"protocol": "http",
-							"host": ["localhost"],
-							"port": "8888",
-							"path": ["api", "bybit", "positions", "long", "market"]
-						}
-					},
-					"response": []
-				},
-				{
-					"name": "Bybit - SHORT/LIMIT (ETH, 5 USDT, dźwignia x15)",
-					"request": {
-						"method": "POST",
-						"header": [
-							{
-								"key": "Content-Type",
-								"value": "application/json",
-								"type": "text"
-							}
-						],
-						"body": {
-							"mode": "raw",
-							"raw": "{\n    \"coin\": \"ETH\",\n    \"usdtAmount\": 5.0,\n    \"leverage\": 15\n}"
-						},
-						"url": {
-							"raw": "http://localhost:8888/api/bybit/positions/short/limit",
-							"protocol": "http",
-							"host": ["localhost"],
-							"port": "8888",
-							"path": ["api", "bybit", "positions", "short", "limit"]
-						}
-					},
-					"response": []
-				},
-				{
-					"name": "Bybit - MARKET/ADVANCED (10 USDT, dźwignia x2, TP/SL, multi-TP)",
-					"request": {
-						"method": "POST",
-						"header": [
-							{
-								"key": "Content-Type",
-								"value": "application/json",
-								"type": "text"
-							}
-						],
-						"body": {
-							"mode": "raw",
-							"raw": "{\n    \"coin\": \"BTC\",\n    \"leverage\": 2,\n    \"type\": \"LONG\",\n    \"tp1\" : \"1.0\",\n    \"tp2\" : \"2.2\",\n    \"tp3\" : \"3.5\",\n    \"tp4\" : \"4.8\",\n    \"tp5\" : \"4.8\",\n    \"takeProfit\" : \"4.8\",\n    \"stopLoss\" : \"0.8\"\n}"
+							"raw": "{\n    \"coin\": \"BTC\",\n    \"usdtAmount\": 10.0,\n    \"leverage\": 10,\n    \"takeProfit\": 100000,\n    \"stopLoss\": 50000\n}"
 						},
 						"url": {
 							"raw": "http://localhost:8888/api/bybit/positions/market/advanced",
