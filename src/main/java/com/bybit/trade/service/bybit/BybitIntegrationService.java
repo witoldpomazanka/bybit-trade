@@ -386,15 +386,21 @@ public class BybitIntegrationService {
     }
 
     public JsonNode openAdvancedMarketPosition(Map<String, Object> payload) {
-        String coin = (String) payload.getOrDefault("coin", "BTC");
-        String type = (String) payload.getOrDefault("type", "LONG");
+        // Walidacja wymaganych pól
+        if (!payload.containsKey("coin") || !payload.containsKey("leverage") || !payload.containsKey("type")) {
+            throw new IllegalArgumentException("Brak wymaganych pól: coin, leverage, type");
+        }
+        String coin = payload.get("coin").toString();
+        String type = payload.get("type").toString();
         Integer leverage = payload.get("leverage") != null ? Integer.parseInt(payload.get("leverage").toString()) : null;
-        String takeProfit = (String) payload.get("takeProfit");
-        String stopLoss = (String) payload.get("stopLoss");
+        // Obsługa Double/String dla TP/SL
+        String takeProfit = payload.get("takeProfit") != null ? payload.get("takeProfit").toString() : null;
+        String stopLoss = payload.get("stopLoss") != null ? payload.get("stopLoss").toString() : null;
         // Szukaj TP1-TP5 jeśli nie ma takeProfit
         String[] tps = new String[5];
         for (int i = 1; i <= 5; i++) {
-            tps[i-1] = payload.get("tp"+i) != null ? payload.get("tp"+i).toString() : null;
+            Object tpVal = payload.get("tp"+i);
+            tps[i-1] = tpVal != null ? tpVal.toString() : null;
         }
         // Ustaw na sztywno 10 USDT
         double usdtAmount = 10.0;
@@ -407,15 +413,13 @@ public class BybitIntegrationService {
         if (stopLoss != null) req.setStopLoss(Double.valueOf(stopLoss));
         // LONG/SHORT
         boolean isLong = type.equalsIgnoreCase("LONG");
-        // Jeśli jest takeProfit, użyj go, jeśli nie, szukaj tp1-tp5 (tu tylko logika, bo API Bybit nie obsługuje nativnie multi-TP w jednym zleceniu market, więc można tylko logować lub rozbić na kilka zleceń)
+        // Jeśli jest takeProfit, użyj go, jeśli nie, szukaj tp1-tp5
         if (takeProfit != null) {
             return isLong ? openLongMarketPosition(req) : openShortMarketPosition(req);
         } else {
-            // Jeśli nie ma takeProfit, a są tp1-tp5, można próbować otworzyć pozycję i ustawić TP po kolei (tu tylko logujemy, bo API nie obsługuje multi-TP w jednym zleceniu market)
             for (String tp : tps) {
                 if (tp != null) {
                     req.setTakeProfit(Double.valueOf(tp));
-                    // Można by tu otwierać osobne pozycje na mniejsze ilości, ale uprośćmy: otwieramy jedną pozycję z pierwszym TP
                     break;
                 }
             }
