@@ -69,7 +69,7 @@ public class BybitIntegrationService {
 
             // 2. Ustawienie dźwigni
             setLeverageForSymbol(symbol, request.getLeverage());
-            F
+
             // 3. Przygotowanie i otwarcie głównej pozycji
             JsonNode openResult = openMainPosition(symbol, request);
 
