@@ -78,7 +78,7 @@
 					"response": []
 				},
 				{
-					"name": "Bybit - SHORT/MARKET (BTC, 10 USDT, domyślna dźwignia x10)",
+					"name": "Bybit - SHORT/MARKET (BTC, 10 USDT, domyślna dźwignia x2)",
 					"request": {
 						"method": "POST",
 						"header": [

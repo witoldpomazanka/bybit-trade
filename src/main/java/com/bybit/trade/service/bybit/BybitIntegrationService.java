@@ -9,6 +9,8 @@ import org.springframework.stereotype.Service;
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.util.HashMap;
+import java.util.Map;
 
 @Slf4j
 @Service
@@ -17,9 +19,17 @@ public class BybitIntegrationService {
 
     private static final double PRICE_OFFSET_PERCENTAGE = 0.01; // 0.01% offset dla Post-Only Limit
     private static final BigDecimal MIN_NOTIONAL_VALUE = new BigDecimal("5.0"); // Minimalna wartość zamówienia w USDT
-    private static final BigDecimal MIN_BTC_QTY = new BigDecimal("0.001"); // Minimalna ilość BTC
-    private static final BigDecimal MIN_ETH_QTY = new BigDecimal("0.01"); // Minimalna ilość ETH
-    private static final int DEFAULT_LEVERAGE = 10; // Domyślna dźwignia x10
+    private static final int DEFAULT_LEVERAGE = 2; // Domyślna dźwignia x2
+    
+    // Twarde minimalne limity narzucone przez Bybit (nie możemy używać mniejszych wartości)
+    private static final Map<String, BigDecimal> HARD_MIN_QTY_LIMITS = new HashMap<>();
+    static {
+        HARD_MIN_QTY_LIMITS.put("BTC", new BigDecimal("0.001")); // Minimalny limit dla BTC to 0.001
+        HARD_MIN_QTY_LIMITS.put("ETH", new BigDecimal("0.01"));  // Minimalny limit dla ETH to 0.01
+        HARD_MIN_QTY_LIMITS.put("SOL", new BigDecimal("0.1"));   // Minimalny limit dla SOL to 0.1
+        // Domyślny limit dla innych kryptowalut
+        HARD_MIN_QTY_LIMITS.put("DEFAULT", new BigDecimal("0.01"));
+    }
     
     private final BybitApiClient bybitApiClient;
 
@@ -86,7 +96,8 @@ public class BybitIntegrationService {
     private JsonNode openPosition(OpenPositionRequestDto request, boolean isLong, boolean isPostOnlyLimit) {
         try {
             // Budujemy pełny symbol pary walutowej
-            String symbol = request.getCoin().toUpperCase() + "USDT";
+            String coin = request.getCoin().toUpperCase();
+            String symbol = coin + "USDT";
             log.info("Otwieranie pozycji na Bybit: {} (symbol: {})", request, symbol);
             
             // Ustalenie dźwigni
@@ -115,27 +126,42 @@ public class BybitIntegrationService {
                 usdtAmount = MIN_NOTIONAL_VALUE;
             }
             
+            // Obliczenie ilości kontraktów
             BigDecimal quantity = usdtAmount.divide(price, 8, RoundingMode.HALF_UP);
             
-            // Sprawdzenie minimalnych limitów dla poszczególnych symboli
-            BigDecimal minQty;
-            if (request.getCoin().toUpperCase().equals("BTC")) {
-                minQty = MIN_BTC_QTY;
-            } else if (request.getCoin().toUpperCase().equals("ETH")) {
-                minQty = MIN_ETH_QTY;
-            } else {
-                // Dla innych symboli przyjmujemy bezpieczną wartość
-                minQty = new BigDecimal("0.01");
+            // Pobierz minimalny limit z API Bybit
+            try {
+                BigDecimal minQtyFromApi = getMinimumOrderQuantity(symbol);
+                log.info("Pobrany z API minimalny limit dla {}: {}", symbol, minQtyFromApi);
+                
+                if (quantity.compareTo(minQtyFromApi) < 0) {
+                    log.warn("Obliczona ilość {} jest mniejsza niż minimalny limit {} pobrany z API dla {}. " +
+                             "Ustawiam minimalną wartość wymaganą przez Bybit.", quantity, minQtyFromApi, symbol);
+                    quantity = minQtyFromApi;
+                    
+                    // Obliczamy też rzeczywistą kwotę USDT po dostosowaniu do minimalnego limitu
+                    BigDecimal actualUsdtAmount = minQtyFromApi.multiply(price);
+                    log.info("Rzeczywista kwota USDT po dostosowaniu do minimalnego limitu: {}", 
+                             actualUsdtAmount.setScale(2, RoundingMode.HALF_UP));
+                }
+            } catch (Exception e) {
+                // Jeśli wystąpi błąd podczas pobierania danych z API, użyj zdefiniowanych wcześniej limitów
+                log.warn("Nie udało się pobrać minimalnego limitu z API dla {}. Używam predefiniowanej wartości.", symbol, e);
+                BigDecimal minQty = HARD_MIN_QTY_LIMITS.getOrDefault(coin, HARD_MIN_QTY_LIMITS.get("DEFAULT"));
+                if (quantity.compareTo(minQty) < 0) {
+                    log.warn("Obliczona ilość {} jest mniejsza niż minimalny limit {} narzucony przez Bybit dla {}. " +
+                             "Ustawiam minimalną wartość wymaganą przez Bybit.", quantity, minQty, coin);
+                    quantity = minQty;
+                    
+                    // Obliczamy też rzeczywistą kwotę USDT po dostosowaniu do minimalnego limitu
+                    BigDecimal actualUsdtAmount = minQty.multiply(price);
+                    log.info("Rzeczywista kwota USDT po dostosowaniu do minimalnego limitu: {}", 
+                             actualUsdtAmount.setScale(2, RoundingMode.HALF_UP));
+                }
             }
             
-            if (quantity.compareTo(minQty) < 0) {
-                log.warn("Obliczona ilość {} jest mniejsza niż minimalna wymagana ilość {} dla {}. Ustawiam minimalną ilość.", 
-                    quantity, minQty, symbol);
-                quantity = minQty;
-            }
-            
-            // Zaokrąglenie ilości kontraktów do 5 miejsc po przecinku
-            quantity = quantity.setScale(5, RoundingMode.HALF_UP);
+            // Zaokrąglenie ilości kontraktów do 8 miejsc po przecinku
+            quantity = quantity.setScale(8, RoundingMode.HALF_UP);
             String qty = quantity.toString();
             
             log.info("Przeliczono kwotę {} USDT na {} kontraktów przy cenie {}", 
@@ -206,5 +232,26 @@ public class BybitIntegrationService {
         }
         
         return price.setScale(2, RoundingMode.HALF_UP).toString();
+    }
+
+    private BigDecimal getMinimumOrderQuantity(String symbol) throws IOException {
+        // Pobierz informacje o instrumencie z API Bybit
+        JsonNode instrumentInfo = bybitApiClient.getInstrumentsInfo("linear", symbol);
+        
+        if (instrumentInfo.has("result") && instrumentInfo.get("result").has("list")) {
+            JsonNode instrumentList = instrumentInfo.get("result").get("list");
+            if (instrumentList.isArray() && instrumentList.size() > 0) {
+                JsonNode instrument = instrumentList.get(0);
+                
+                // Sprawdź, czy instrument zawiera informacje o lotSizeFilter i minOrderQty
+                if (instrument.has("lotSizeFilter") && instrument.get("lotSizeFilter").has("minOrderQty")) {
+                    String minOrderQtyStr = instrument.get("lotSizeFilter").get("minOrderQty").asText();
+                    return new BigDecimal(minOrderQtyStr);
+                }
+            }
+        }
+        
+        // Jeśli nie udało się znaleźć danych, rzuć wyjątek
+        throw new IOException("Nie udało się pobrać minimalnej ilości zamówienia dla symbolu " + symbol);
     }
 } 

@@ -26,6 +26,7 @@ public class BybitApiClient {
     private static final String ORDERBOOK_ENDPOINT = "/v5/market/orderbook";
     private static final String TICKERS_ENDPOINT = "/v5/market/tickers";
     private static final String SET_LEVERAGE_ENDPOINT = "/v5/position/set-leverage";
+    private static final String INSTRUMENTS_INFO_ENDPOINT = "/v5/market/instruments-info";
     private static final String HMAC_SHA256 = "HmacSHA256";
     
     private final String apiKey;
@@ -126,6 +127,17 @@ public class BybitApiClient {
         }
 
         throw new IOException("Nie udało się pobrać ceny rynkowej");
+    }
+
+    public JsonNode getInstrumentsInfo(String category, String symbol) throws IOException {
+        TreeMap<String, String> params = new TreeMap<>();
+        params.put("category", category);
+        if (symbol != null && !symbol.isEmpty()) {
+            params.put("symbol", symbol);
+        }
+        
+        log.info("Pobieranie informacji o instrumencie: kategoria={}, symbol={}", category, symbol);
+        return executeGetRequest(INSTRUMENTS_INFO_ENDPOINT, params);
     }
 
     private String buildQueryString(TreeMap<String, String> params) {
