@@ -17,10 +17,7 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class BybitIntegrationService {
 
-    private static final double PRICE_OFFSET_PERCENTAGE = 0.01; // 0.01% offset dla Post-Only Limit
     private static final BigDecimal MIN_NOTIONAL_VALUE = new BigDecimal("5.0"); // Minimalna wartość zamówienia w USDT
-    private static final int DEFAULT_LEVERAGE = 2; // Domyślna dźwignia x2
-
     // Twarde minimalne limity narzucone przez Bybit (nie możemy używać mniejszych wartości)
     private static final Map<String, BigDecimal> HARD_MIN_QTY_LIMITS = new HashMap<>();
 
@@ -72,7 +69,7 @@ public class BybitIntegrationService {
 
             // 2. Ustawienie dźwigni
             setLeverageForSymbol(symbol, request.getLeverage());
-
+            F
             // 3. Przygotowanie i otwarcie głównej pozycji
             JsonNode openResult = openMainPosition(symbol, request);
 
@@ -241,26 +238,6 @@ public class BybitIntegrationService {
             }
             return quantity;
         }
-    }
-
-    // --- METODY POMOCNICZE DO CZĘŚCIOWYCH TP ---
-
-    /**
-     * Zwraca symbol kontraktu po otwarciu pozycji (na podstawie coina)
-     */
-    private String findSymbolAfterOpen(String coin) {
-        try {
-            return bybitApiClient.findCorrectSymbol(coin);
-        } catch (Exception e) {
-            throw new RuntimeException("Nie udało się znaleźć symbolu dla coina: " + coin, e);
-        }
-    }
-
-    /**
-     * Zwraca kategorię kontraktu (zawsze 'linear' dla USDT)
-     */
-    private String findCategoryAfterOpen(String symbol) {
-        return "linear";
     }
 
     /**
