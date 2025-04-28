@@ -404,7 +404,11 @@ public class BybitIntegrationService {
                 tps[tpCount++] = tpVal.toString();
             }
         }
-        double usdtAmount = 10.0;
+        double margin = payload.get("usdtAmount") != null ? Double.parseDouble(payload.get("usdtAmount").toString()) : 10.0;
+        double usdtAmount = margin;
+        if (leverage != null && leverage > 0) {
+            usdtAmount = margin * leverage;
+        }
         OpenPositionRequestDto req = new OpenPositionRequestDto();
         req.setCoin(coin);
         req.setUsdtAmount(usdtAmount);
