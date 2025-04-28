@@ -53,6 +53,31 @@
 					"response": []
 				},
 				{
+					"name": "Bybit - MARKET/ADVANCED - Minimalna pozycja (bez usdtAmount)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"coin\": \"BTC\",\n    \"type\": \"LONG\",\n    \"leverage\": 10,\n    \"stopLoss\": 50000,\n    \"tp1\": 55000,\n    \"tp2\": 57000\n}"
+						},
+						"url": {
+							"raw": "http://localhost:8888/api/bybit/positions/market/advanced",
+							"protocol": "http",
+							"host": ["localhost"],
+							"port": "8888",
+							"path": ["api", "bybit", "positions", "market", "advanced"]
+						}
+					},
+					"response": []
+				},
+				{
 					"name": "Bybit - MARKET/ADVANCED - Pojedynczy TP/SL",
 					"request": {
 						"method": "POST",
