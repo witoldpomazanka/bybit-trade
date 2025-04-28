@@ -53,7 +53,7 @@
 					"response": []
 				},
 				{
-					"name": "Bybit - MARKET/ADVANCED (margin, dźwignia, TP/SL, multi-TP)",
+					"name": "Bybit - MARKET/ADVANCED - Pojedynczy TP/SL",
 					"request": {
 						"method": "POST",
 						"header": [
@@ -65,7 +65,57 @@
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n    \"coin\": \"BTC\",\n    \"usdtAmount\": 10.0,\n    \"leverage\": 10,\n    \"takeProfit\": 100000,\n    \"stopLoss\": 50000\n}"
+							"raw": "{\n    \"coin\": \"BTC\",\n    \"type\": \"LONG\",\n    \"leverage\": 10,\n    \"usdtAmount\": 10.0,\n    \"takeProfit\": 100000,\n    \"stopLoss\": 50000\n}"
+						},
+						"url": {
+							"raw": "http://localhost:8888/api/bybit/positions/market/advanced",
+							"protocol": "http",
+							"host": ["localhost"],
+							"port": "8888",
+							"path": ["api", "bybit", "positions", "market", "advanced"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Bybit - MARKET/ADVANCED - Multiple TP (3 poziomy)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"coin\": \"SOL\",\n    \"type\": \"LONG\",\n    \"leverage\": 10,\n    \"usdtAmount\": 100.0,\n    \"stopLoss\": 145,\n    \"tp1\": 148,\n    \"tp2\": 149,\n    \"tp3\": 150\n}"
+						},
+						"url": {
+							"raw": "http://localhost:8888/api/bybit/positions/market/advanced",
+							"protocol": "http",
+							"host": ["localhost"],
+							"port": "8888",
+							"path": ["api", "bybit", "positions", "market", "advanced"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Bybit - MARKET/ADVANCED - Multiple TP (5 poziomów)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"coin\": \"BTC\",\n    \"type\": \"LONG\",\n    \"leverage\": 10,\n    \"usdtAmount\": 100.0,\n    \"stopLoss\": 60000,\n    \"tp1\": 65000,\n    \"tp2\": 67000,\n    \"tp3\": 70000,\n    \"tp4\": 72000,\n    \"tp5\": 75000\n}"
 						},
 						"url": {
 							"raw": "http://localhost:8888/api/bybit/positions/market/advanced",

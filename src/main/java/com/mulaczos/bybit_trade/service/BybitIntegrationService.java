@@ -1,7 +1,7 @@
 package com.mulaczos.bybit_trade.service;
 
-import com.mulaczos.bybit_trade.dto.OpenPositionRequestDto;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.mulaczos.bybit_trade.dto.AdvancedMarketPositionRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -20,9 +20,10 @@ public class BybitIntegrationService {
     private static final double PRICE_OFFSET_PERCENTAGE = 0.01; // 0.01% offset dla Post-Only Limit
     private static final BigDecimal MIN_NOTIONAL_VALUE = new BigDecimal("5.0"); // Minimalna wartość zamówienia w USDT
     private static final int DEFAULT_LEVERAGE = 2; // Domyślna dźwignia x2
-    
+
     // Twarde minimalne limity narzucone przez Bybit (nie możemy używać mniejszych wartości)
     private static final Map<String, BigDecimal> HARD_MIN_QTY_LIMITS = new HashMap<>();
+
     static {
         HARD_MIN_QTY_LIMITS.put("BTC", new BigDecimal("0.001")); // Minimalny limit dla BTC to 0.001
         HARD_MIN_QTY_LIMITS.put("ETH", new BigDecimal("0.01"));  // Minimalny limit dla ETH to 0.01
@@ -30,7 +31,7 @@ public class BybitIntegrationService {
         // Domyślny limit dla innych kryptowalut
         HARD_MIN_QTY_LIMITS.put("DEFAULT", new BigDecimal("0.01"));
     }
-    
+
     private final BybitApiClient bybitApiClient;
 
     public JsonNode getOpenPositions() {
@@ -59,137 +60,25 @@ public class BybitIntegrationService {
 
     public JsonNode openAdvancedMarketPosition(Map<String, Object> payload) {
         log.debug("Rozpoczynam otwieranie zaawansowanej pozycji market z payload: {}", payload);
-        
-        // Walidacja wymaganych pól
-        if (!payload.containsKey("coin") || !payload.containsKey("leverage") || !payload.containsKey("type")) {
-            log.error("Brak wymaganych pól w payload: {}", payload);
-            throw new IllegalArgumentException("Brak wymaganych pól: coin, leverage, type");
-        }
+        return openAdvancedMarketPosition(AdvancedMarketPositionRequest.fromMap(payload));
+    }
 
-        // Podstawowa walidacja i przygotowanie danych
-        String coin = payload.get("coin").toString().toUpperCase();
-        String type = payload.get("type").toString().toUpperCase();
-        log.debug("Przygotowane dane podstawowe - coin: {}, type: {}", coin, type);
-        
-        if (!type.equals("LONG") && !type.equals("SHORT")) {
-            log.error("Nieprawidłowy typ pozycji: {}", type);
-            throw new IllegalArgumentException("Type musi być LONG lub SHORT");
-        }
-        
-        Integer leverage = Integer.parseInt(payload.get("leverage").toString());
-        String stopLoss = payload.get("stopLoss") != null ? payload.get("stopLoss").toString() : null;
-        String takeProfit = payload.get("takeProfit") != null ? payload.get("takeProfit").toString() : null;
-        log.debug("Parametry pozycji - leverage: {}, stopLoss: {}, takeProfit: {}", leverage, stopLoss, takeProfit);
-
-        // Pobierz usdtAmount z payload
-        BigDecimal usdtAmount = payload.get("usdtAmount") != null ? 
-            new BigDecimal(payload.get("usdtAmount").toString()) : 
-            MIN_NOTIONAL_VALUE;
-        log.debug("Wartość USDT przed dźwignią: {}", usdtAmount);
-            
-        // Zastosuj dźwignię do usdtAmount
-        usdtAmount = usdtAmount.multiply(BigDecimal.valueOf(leverage));
-        log.debug("Wartość USDT po zastosowaniu dźwigni ({}x): {}", leverage, usdtAmount);
-
-        // Zbieranie partial take-profits
-        Map<Integer, String> partialTps = new HashMap<>();
-        for (int i = 1; i <= 5; i++) {
-            String tpKey = "tp" + i;
-            if (payload.containsKey(tpKey) && payload.get(tpKey) != null) {
-                partialTps.put(i, payload.get(tpKey).toString());
-            }
-        }
-        log.debug("Znalezione partial take-profits: {}", partialTps);
+    public JsonNode openAdvancedMarketPosition(AdvancedMarketPositionRequest request) {
+        log.debug("Rozpoczynam otwieranie zaawansowanej pozycji market: {}", request);
 
         try {
-            String symbol = bybitApiClient.findCorrectSymbol(coin);
-            log.debug("Znaleziony symbol dla {}: {}", coin, symbol);
-            
-            if (!bybitApiClient.isSymbolSupported("linear", symbol)) {
-                log.error("Symbol {} nie jest obsługiwany w kategorii linear", symbol);
-                throw new RuntimeException("Symbol " + symbol + " nie jest obsługiwany w kategorii linear na Bybit");
-            }
+            // 1. Przygotowanie i walidacja symbolu
+            String symbol = prepareAndValidateSymbol(request.getCoin());
 
-            // Ustawienie dźwigni
-            log.debug("Ustawianie dźwigni {}x dla {}", leverage, symbol);
-            bybitApiClient.setLeverage("linear", symbol, String.valueOf(leverage));
+            // 2. Ustawienie dźwigni
+            setLeverageForSymbol(symbol, request.getLeverage());
 
-            // Przygotowanie podstawowych parametrów zlecenia
-            String side = type.equals("LONG") ? "Buy" : "Sell";
-            double currentPrice = bybitApiClient.getMarketPrice("linear", symbol);
-            BigDecimal price = BigDecimal.valueOf(currentPrice);
-            log.debug("Parametry zlecenia - side: {}, currentPrice: {}", side, price);
+            // 3. Przygotowanie i otwarcie głównej pozycji
+            JsonNode openResult = openMainPosition(symbol, request);
 
-            // Obliczanie wielkości pozycji z uwzględnieniem usdtAmount
-            BigDecimal quantity = calculatePositionSize(symbol, price, usdtAmount);
-            String qty = quantity.toString();
-            log.debug("Obliczona wielkość pozycji: {}", qty);
-
-            // Otwarcie głównej pozycji
-            log.debug("Otwieranie głównej pozycji - symbol: {}, side: {}, qty: {}, takeProfit: {}, stopLoss: {}", 
-                     symbol, side, qty, takeProfit, stopLoss);
-            JsonNode openResult = bybitApiClient.openPosition(
-                "linear",
-                symbol,
-                side,
-                "Market",
-                qty,
-                null,
-                takeProfit,
-                stopLoss
-            );
-            log.debug("Wynik otwarcia pozycji: {}", openResult);
-
-            // Obsługa partial take-profits
-            if (!partialTps.isEmpty() && takeProfit == null) {
-                double totalQty = getOpenedPositionQty(symbol, "linear");
-                int tpCount = partialTps.size();
-                log.debug("Konfiguracja partial TP - całkowita ilość: {}, liczba TP: {}", totalQty, tpCount);
-                
-                // Pobierz minimalny limit dla danej kryptowaluty
-                String baseCoin = extractBaseCoinFromSymbol(symbol);
-                BigDecimal minQty = HARD_MIN_QTY_LIMITS.getOrDefault(baseCoin, HARD_MIN_QTY_LIMITS.get("DEFAULT"));
-                log.debug("Minimalny limit dla {}: {}", baseCoin, minQty);
-
-                // Oblicz równe części dla wszystkich TP oprócz ostatniego
-                double basePartSize = Math.floor((totalQty / tpCount) * 100) / 100.0; // Zaokrąglenie do 2 miejsc po przecinku
-                double remainingQty = totalQty;
-                log.debug("Bazowa wielkość dla każdego TP (oprócz ostatniego): {}", basePartSize);
-                
-                for (Map.Entry<Integer, String> tp : partialTps.entrySet()) {
-                    double tpSize;
-                    if (tp.getKey() == tpCount) {
-                        // Dla ostatniego TP użyj pozostałej ilości
-                        tpSize = Math.round(remainingQty * 100) / 100.0; // Zaokrąglenie do 2 miejsc po przecinku
-                        log.debug("Ostatni TP ({}), użycie pozostałej ilości: {}", tp.getKey(), tpSize);
-                    } else {
-                        tpSize = basePartSize;
-                        remainingQty -= basePartSize;
-                        log.debug("TP {}, użycie bazowej wielkości: {}, pozostało: {}", tp.getKey(), tpSize, remainingQty);
-                    }
-                    
-                    // Upewnij się, że wielkość TP nie jest mniejsza niż minimalny limit
-                    if (BigDecimal.valueOf(tpSize).compareTo(minQty) < 0) {
-                        tpSize = minQty.doubleValue();
-                        log.debug("Wielkość TP skorygowana do minimalnego limitu: {}", tpSize);
-                    }
-
-                    Map<String, Object> tpReq = new HashMap<>();
-                    tpReq.put("category", "linear");
-                    tpReq.put("symbol", symbol);
-                    tpReq.put("tpslMode", "Partial");
-                    tpReq.put("tpOrderType", "Market");
-                    tpReq.put("tpSize", String.valueOf(tpSize));
-                    tpReq.put("takeProfit", tp.getValue());
-                    tpReq.put("positionIdx", 0);
-                    
-                    if (stopLoss != null) {
-                        tpReq.put("stopLoss", stopLoss);
-                    }
-                    
-                    log.debug("Ustawianie partial TP {} - parametry: {}", tp.getKey(), tpReq);
-                    callBybitTradingStop(tpReq);
-                }
+            // 4. Konfiguracja partial take-profits (jeśli są)
+            if (shouldConfigurePartialTakeProfits(request)) {
+                configurePartialTakeProfits(symbol, request);
             }
 
             log.debug("Zakończono otwieranie pozycji z sukcesem");
@@ -200,18 +89,144 @@ public class BybitIntegrationService {
         }
     }
 
+    private String prepareAndValidateSymbol(String coin) throws IOException {
+        String symbol = bybitApiClient.findCorrectSymbol(coin);
+        if (!bybitApiClient.isSymbolSupported("linear", symbol)) {
+            throw new RuntimeException("Symbol " + symbol + " nie jest obsługiwany w kategorii linear na Bybit");
+        }
+        log.debug("Znaleziony i zwalidowany symbol: {}", symbol);
+        return symbol;
+    }
+
+    private void setLeverageForSymbol(String symbol, int leverage) throws IOException {
+        log.debug("Ustawianie dźwigni {}x dla {}", leverage, symbol);
+        bybitApiClient.setLeverage("linear", symbol, String.valueOf(leverage));
+    }
+
+    private JsonNode openMainPosition(String symbol, AdvancedMarketPositionRequest request) throws IOException {
+        // Przygotowanie parametrów zlecenia
+        double currentPrice = bybitApiClient.getMarketPrice("linear", symbol);
+        BigDecimal price = BigDecimal.valueOf(currentPrice);
+        log.debug("Aktualna cena rynkowa dla {}: {}", symbol, price);
+
+        // Obliczanie wielkości pozycji
+        BigDecimal notionalValue = request.getUsdtAmount() != null ?
+                request.getUsdtAmount().multiply(BigDecimal.valueOf(request.getLeverage())) :
+                MIN_NOTIONAL_VALUE;
+
+        BigDecimal quantity = calculatePositionSize(symbol, price, notionalValue);
+        String qty = quantity.toString();
+        log.debug("Obliczona wielkość pozycji: {}", qty);
+
+        // Otwarcie pozycji
+        log.debug("Otwieranie głównej pozycji - symbol: {}, side: {}, qty: {}, takeProfit: {}, stopLoss: {}",
+                symbol, request.getSide(), qty, request.getTakeProfit(), request.getStopLoss());
+
+        return bybitApiClient.openPosition(
+                "linear",
+                symbol,
+                request.getSide(),
+                "Market",
+                qty,
+                null,
+                request.getTakeProfit(),
+                request.getStopLoss()
+        );
+    }
+
+    private boolean shouldConfigurePartialTakeProfits(AdvancedMarketPositionRequest request) {
+        return request.hasPartialTakeProfits() && request.getTakeProfit() == null;
+    }
+
+    private void configurePartialTakeProfits(String symbol, AdvancedMarketPositionRequest request) throws IOException {
+        double totalQty = getOpenedPositionQty(symbol, "linear");
+        Map<Integer, String> partialTps = request.getPartialTakeProfits();
+        int tpCount = partialTps.size();
+
+        log.debug("Konfiguracja partial TP - całkowita ilość: {}, liczba TP: {}", totalQty, tpCount);
+
+        // Pobierz minimalny limit dla danej kryptowaluty
+        String baseCoin = extractBaseCoinFromSymbol(symbol);
+        BigDecimal minQty = HARD_MIN_QTY_LIMITS.getOrDefault(baseCoin, HARD_MIN_QTY_LIMITS.get("DEFAULT"));
+        log.debug("Minimalny limit dla {}: {}", baseCoin, minQty);
+
+        // Oblicz równe części dla wszystkich TP oprócz ostatniego
+        double basePartSize = Math.floor((totalQty / tpCount) * 100) / 100.0;
+        double remainingQty = totalQty;
+        log.debug("Bazowa wielkość dla każdego TP (oprócz ostatniego): {}", basePartSize);
+
+        for (Map.Entry<Integer, String> tp : partialTps.entrySet()) {
+            configureSinglePartialTakeProfit(
+                    symbol,
+                    tp.getKey(),
+                    tp.getValue(),
+                    tpCount,
+                    basePartSize,
+                    remainingQty,
+                    minQty,
+                    request.getStopLoss()
+            );
+
+            if (tp.getKey() != tpCount) {
+                remainingQty -= basePartSize;
+            }
+        }
+    }
+
+    private void configureSinglePartialTakeProfit(
+            String symbol,
+            int tpNumber,
+            String takeProfitPrice,
+            int totalTpCount,
+            double basePartSize,
+            double remainingQty,
+            BigDecimal minQty,
+            String stopLoss) throws IOException {
+
+        double tpSize;
+        if (tpNumber == totalTpCount) {
+            // Dla ostatniego TP użyj dokładnie tej samej formuły co w starej wersji
+            tpSize = remainingQty - (Math.floor(remainingQty / totalTpCount) * (totalTpCount - 1));
+            log.debug("Ostatni TP ({}), użycie pozostałej ilości: {}", tpNumber, tpSize);
+        } else {
+            tpSize = basePartSize;
+            log.debug("TP {}, użycie bazowej wielkości: {}, pozostało: {}", tpNumber, tpSize, remainingQty - basePartSize);
+        }
+
+        if (BigDecimal.valueOf(tpSize).compareTo(minQty) < 0) {
+            tpSize = minQty.doubleValue();
+            log.debug("Wielkość TP skorygowana do minimalnego limitu: {}", tpSize);
+        }
+
+        Map<String, Object> tpReq = new HashMap<>();
+        tpReq.put("category", "linear");
+        tpReq.put("symbol", symbol);
+        tpReq.put("tpslMode", "Partial");
+        tpReq.put("tpOrderType", "Market");
+        tpReq.put("tpSize", String.valueOf(tpSize));
+        tpReq.put("takeProfit", takeProfitPrice);
+        tpReq.put("positionIdx", 0);
+
+        if (stopLoss != null) {
+            tpReq.put("stopLoss", stopLoss);
+        }
+
+        log.debug("Ustawianie partial TP {} - parametry: {}", tpNumber, tpReq);
+        callBybitTradingStop(tpReq);
+    }
+
     private BigDecimal calculatePositionSize(String symbol, BigDecimal price, BigDecimal notionalValue) throws IOException {
         try {
             BigDecimal minQtyFromApi = getMinimumOrderQuantity(symbol);
             // Oblicz ilość na podstawie ceny
             BigDecimal quantity = notionalValue.divide(price, 8, RoundingMode.HALF_UP);
-            
+
             if (quantity.compareTo(minQtyFromApi) < 0) {
                 quantity = minQtyFromApi;
             }
             BigDecimal qtyStep = getQuantityStep(symbol);
             quantity = roundToValidQuantity(quantity, qtyStep);
-            
+
             BigDecimal orderValue = quantity.multiply(price);
             if (orderValue.compareTo(MIN_NOTIONAL_VALUE) < 0) {
                 quantity = quantity.add(qtyStep);
@@ -229,6 +244,7 @@ public class BybitIntegrationService {
     }
 
     // --- METODY POMOCNICZE DO CZĘŚCIOWYCH TP ---
+
     /**
      * Zwraca symbol kontraktu po otwarciu pozycji (na podstawie coina)
      */
