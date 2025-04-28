@@ -95,10 +95,26 @@ public class BybitIntegrationService {
 
     private JsonNode openPosition(OpenPositionRequestDto request, boolean isLong, boolean isPostOnlyLimit) {
         try {
-            // Budujemy pełny symbol pary walutowej
+            // Pobieramy podstawowy coin
             String coin = request.getCoin().toUpperCase();
-            String symbol = coin + "USDT";
+            
+            // Wyszukaj prawidłowy symbol kontraktu
+            String symbol;
+            try {
+                symbol = bybitApiClient.findCorrectSymbol(coin);
+                log.info("Znaleziono prawidłowy symbol dla coina {}: {}", coin, symbol);
+            } catch (IOException e) {
+                log.error("Nie znaleziono prawidłowego symbolu dla coina {}: {}", coin, e.getMessage());
+                throw new RuntimeException("Nie znaleziono prawidłowego symbolu dla coina " + coin + ". Sprawdź, czy ten coin jest dostępny na Bybit.", e);
+            }
+            
             log.info("Otwieranie pozycji na Bybit: {} (symbol: {})", request, symbol);
+            
+            // Sprawdź, czy symbol jest obsługiwany
+            if (!bybitApiClient.isSymbolSupported("linear", symbol)) {
+                log.error("Symbol {} nie jest obsługiwany w kategorii linear na Bybit", symbol);
+                throw new RuntimeException("Symbol " + symbol + " nie jest obsługiwany w kategorii linear na Bybit");
+            }
             
             // Ustalenie dźwigni
             int leverage = request.getLeverage() != null ? request.getLeverage() : DEFAULT_LEVERAGE;
@@ -112,8 +128,14 @@ public class BybitIntegrationService {
             String orderType = isPostOnlyLimit ? "Limit" : "Market";
             
             // Pobieranie aktualnej ceny rynkowej
-            double currentPrice = getCurrentPrice(symbol);
-            log.info("Aktualna cena rynkowa dla {}: {}", symbol, currentPrice);
+            double currentPrice;
+            try {
+                currentPrice = getCurrentPrice(symbol);
+                log.info("Aktualna cena rynkowa dla {}: {}", symbol, currentPrice);
+            } catch (IOException e) {
+                log.error("Nie udało się pobrać aktualnej ceny rynkowej dla {}: {}", symbol, e.getMessage());
+                throw new RuntimeException("Nie udało się pobrać aktualnej ceny rynkowej dla " + symbol, e);
+            }
             
             // Obliczanie ilości kontraktów na podstawie kwoty USDT i aktualnej ceny
             BigDecimal price = BigDecimal.valueOf(currentPrice);
@@ -161,10 +183,14 @@ public class BybitIntegrationService {
             } catch (Exception e) {
                 // Jeśli wystąpi błąd podczas pobierania danych z API, użyj zdefiniowanych wcześniej limitów
                 log.warn("Nie udało się pobrać minimalnego limitu z API dla {}. Używam predefiniowanej wartości.", symbol, e);
-                BigDecimal minQty = HARD_MIN_QTY_LIMITS.getOrDefault(coin, HARD_MIN_QTY_LIMITS.get("DEFAULT"));
+                
+                // Wyciągnij bazowy coin z symbolu (np. z "1000PEPEUSDT" -> "PEPE")
+                String baseCoin = extractBaseCoinFromSymbol(symbol);
+                
+                BigDecimal minQty = HARD_MIN_QTY_LIMITS.getOrDefault(baseCoin, HARD_MIN_QTY_LIMITS.get("DEFAULT"));
                 if (quantity.compareTo(minQty) < 0) {
                     log.warn("Obliczona ilość {} jest mniejsza niż minimalny limit {} narzucony przez Bybit dla {}. " +
-                             "Ustawiam minimalną wartość wymaganą przez Bybit.", quantity, minQty, coin);
+                             "Ustawiam minimalną wartość wymaganą przez Bybit.", quantity, minQty, baseCoin);
                     quantity = minQty;
                     
                     // Obliczamy też rzeczywistą kwotę USDT po dostosowaniu do minimalnego limitu
@@ -228,9 +254,14 @@ public class BybitIntegrationService {
 
     private double getCurrentPrice(String symbol) throws IOException {
         log.info("Pobieranie aktualnej ceny rynkowej dla {}", symbol);
-        double price = bybitApiClient.getMarketPrice("linear", symbol);
-        log.info("Pobrano aktualną cenę rynkową dla {}: {}", symbol, price);
-        return price;
+        try {
+            double price = bybitApiClient.getMarketPrice("linear", symbol);
+            log.info("Pobrano aktualną cenę rynkową dla {}: {}", symbol, price);
+            return price;
+        } catch (IOException e) {
+            log.error("Błąd podczas pobierania ceny rynkowej dla {}: {}", symbol, e.getMessage());
+            throw new IOException("Nie udało się pobrać ceny rynkowej dla symbolu " + symbol + ": " + e.getMessage(), e);
+        }
     }
 
     private String calculateLimitPrice(double currentPrice, String side) {
@@ -307,5 +338,36 @@ public class BybitIntegrationService {
         // Upewniamy się, że liczba miejsc po przecinku nie przekracza skali qtyStep
         int scale = Math.max(0, qtyStep.scale());
         return result.setScale(scale, RoundingMode.DOWN);
+    }
+    
+    /**
+     * Ekstrahuje podstawowy coin z symbolu (np. z "1000PEPEUSDT" -> "PEPE")
+     */
+    private String extractBaseCoinFromSymbol(String symbol) {
+        // Usuwamy "USDT" z końca
+        String withoutUSDT = symbol.endsWith("USDT") ? symbol.substring(0, symbol.length() - 4) : symbol;
+        
+        // Sprawdź, czy nazwa zawiera prefiks liczbowy (np. 1000PEPE)
+        if (withoutUSDT.length() > 0) {
+            StringBuilder coinName = new StringBuilder();
+            boolean foundLetter = false;
+            
+            for (char c : withoutUSDT.toCharArray()) {
+                if (Character.isLetter(c)) {
+                    coinName.append(c);
+                    foundLetter = true;
+                } else if (foundLetter) {
+                    // Jeśli znaleźliśmy już literę i napotkamy na cyfrę, to znaczy że to koniec nazwy coina
+                    coinName.append(c);
+                }
+            }
+            
+            if (coinName.length() > 0) {
+                return coinName.toString();
+            }
+        }
+        
+        // Fallback - zwróć oryginalny symbol bez USDT
+        return withoutUSDT;
     }
 } 

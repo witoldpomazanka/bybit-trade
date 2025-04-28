@@ -114,19 +114,33 @@ public class BybitApiClient {
                 return (bestAsk + bestBid) / 2;
             }
         } catch (Exception e) {
-            log.warn("Nie udało się pobrać ceny z order booka, próbuję z tickerów", e);
+            log.warn("Nie udało się pobrać ceny z order booka dla symbolu {}, próbuję z tickerów", symbol, e);
         }
 
         // Jeśli nie udało się pobrać z order booka, próbujemy z tickerów
-        JsonNode tickersResult = executeGetRequest(TICKERS_ENDPOINT, params);
-        if (tickersResult.has("result") && tickersResult.get("result").has("list")) {
-            JsonNode firstTicker = tickersResult.get("result").get("list").get(0);
-            if (firstTicker.has("lastPrice")) {
-                return Double.parseDouble(firstTicker.get("lastPrice").asText());
+        try {
+            JsonNode tickersResult = executeGetRequest(TICKERS_ENDPOINT, params);
+            if (tickersResult.has("result") && tickersResult.get("result").has("list")) {
+                JsonNode tickersList = tickersResult.get("result").get("list");
+                if (tickersList.isArray() && tickersList.size() > 0) {
+                    JsonNode firstTicker = tickersList.get(0);
+                    if (firstTicker.has("lastPrice")) {
+                        return Double.parseDouble(firstTicker.get("lastPrice").asText());
+                    }
+                }
             }
+            
+            // Sprawdzamy kod błędu
+            if (tickersResult.has("retCode") && tickersResult.get("retCode").asInt() != 0) {
+                int errorCode = tickersResult.get("retCode").asInt();
+                String errorMsg = tickersResult.has("retMsg") ? tickersResult.get("retMsg").asText() : "Unknown error";
+                log.error("Błąd API dla symbolu {}: kod={}, wiadomość={}", symbol, errorCode, errorMsg);
+            }
+        } catch (Exception e) {
+            log.error("Wyjątek podczas pobierania ceny z tickerów dla symbolu {}", symbol, e);
         }
 
-        throw new IOException("Nie udało się pobrać ceny rynkowej");
+        throw new IOException("Nie udało się pobrać ceny rynkowej dla symbolu " + symbol);
     }
 
     public JsonNode getInstrumentsInfo(String category, String symbol) throws IOException {
@@ -138,6 +152,81 @@ public class BybitApiClient {
         
         log.info("Pobieranie informacji o instrumencie: kategoria={}, symbol={}", category, symbol);
         return executeGetRequest(INSTRUMENTS_INFO_ENDPOINT, params);
+    }
+
+    /**
+     * Wyszukuje prawidłowy symbol kontraktu dla danego coina
+     * @param coin podstawowy coin (np. "PEPE", "BTC", "DOGE")
+     * @return pełna nazwa symbolu kontraktu (np. "1000PEPEUSDT", "BTCUSDT")
+     * @throws IOException jeśli nie udało się znaleźć symbolu
+     */
+    public String findCorrectSymbol(String coin) throws IOException {
+        log.info("Wyszukiwanie prawidłowego symbolu dla coina: {}", coin);
+        
+        // Najpierw sprawdźmy standardowy symbol (coin + USDT)
+        String standardSymbol = coin.toUpperCase() + "USDT";
+        
+        // Pobierz wszystkie instrumenty z kategorii linear
+        TreeMap<String, String> params = new TreeMap<>();
+        params.put("category", "linear");
+        
+        JsonNode instrumentsInfo = executeGetRequest(INSTRUMENTS_INFO_ENDPOINT, params);
+        
+        if (instrumentsInfo.has("result") && instrumentsInfo.get("result").has("list")) {
+            JsonNode instrumentsList = instrumentsInfo.get("result").get("list");
+            
+            if (instrumentsList.isArray() && instrumentsList.size() > 0) {
+                // Najpierw sprawdź, czy standardowy symbol jest dostępny
+                for (JsonNode instrument : instrumentsList) {
+                    if (instrument.has("symbol") && standardSymbol.equals(instrument.get("symbol").asText())) {
+                        log.info("Znaleziono standardowy symbol: {}", standardSymbol);
+                        return standardSymbol;
+                    }
+                }
+                
+                // Jeśli standardowy symbol nie jest dostępny, szukaj wariantów
+                // Np. dla PEPE może to być 1000PEPEUSDT
+                String coinUpperCase = coin.toUpperCase();
+                for (JsonNode instrument : instrumentsList) {
+                    if (instrument.has("symbol")) {
+                        String symbol = instrument.get("symbol").asText();
+                        if (symbol.contains(coinUpperCase) && symbol.endsWith("USDT")) {
+                            log.info("Znaleziono alternatywny symbol dla {}: {}", coin, symbol);
+                            return symbol;
+                        }
+                    }
+                }
+            }
+        }
+        
+        log.error("Nie znaleziono prawidłowego symbolu dla coina: {}", coin);
+        throw new IOException("Nie znaleziono prawidłowego symbolu kontraktu dla coina: " + coin);
+    }
+    
+    /**
+     * Sprawdza, czy dany symbol jest obsługiwany przez Bybit w określonej kategorii
+     * @param category kategoria (np. "linear")
+     * @param symbol symbol do sprawdzenia
+     * @return true jeśli symbol jest obsługiwany, false w przeciwnym przypadku
+     */
+    public boolean isSymbolSupported(String category, String symbol) {
+        try {
+            TreeMap<String, String> params = new TreeMap<>();
+            params.put("category", category);
+            params.put("symbol", symbol);
+            
+            JsonNode response = executeGetRequest(INSTRUMENTS_INFO_ENDPOINT, params);
+            
+            if (response.has("result") && response.get("result").has("list")) {
+                JsonNode list = response.get("result").get("list");
+                return list.isArray() && list.size() > 0;
+            }
+            
+            return false;
+        } catch (Exception e) {
+            log.warn("Błąd podczas sprawdzania, czy symbol {} jest obsługiwany: {}", symbol, e.getMessage());
+            return false;
+        }
     }
 
     private String buildQueryString(TreeMap<String, String> params) {
