@@ -8,6 +8,7 @@ import com.bybit.trade.dto.OpenPositionRequestDto;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import jakarta.validation.Valid;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/bybit")
@@ -105,6 +106,12 @@ public class BybitController {
         log.info("Otrzymano żądanie pobrania salda konta");
         JsonNode result = bybitIntegrationService.getAccountBalance();
         log.info("Pobrano saldo konta: {}", result);
+        return ResponseEntity.ok(result);
+    }
+
+    @PostMapping("/positions/market/advanced")
+    public ResponseEntity<JsonNode> openAdvancedMarketPosition(@RequestBody Map<String, Object> payload) {
+        JsonNode result = bybitIntegrationService.openAdvancedMarketPosition(payload);
         return ResponseEntity.ok(result);
     }
 } 

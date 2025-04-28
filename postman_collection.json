@@ -176,6 +176,31 @@
 						}
 					},
 					"response": []
+				},
+				{
+					"name": "Bybit - MARKET/ADVANCED (10 USDT, dźwignia x2, TP/SL, multi-TP)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"coin\": \"BTC\",\n    \"leverage\": 2,\n    \"type\": \"LONG\",\n    \"tp1\" : \"1.0\",\n    \"tp2\" : \"2.2\",\n    \"tp3\" : \"3.5\",\n    \"tp4\" : \"4.8\",\n    \"tp5\" : \"4.8\",\n    \"takeProfit\" : \"4.8\",\n    \"stopLoss\" : \"0.8\"\n}"
+						},
+						"url": {
+							"raw": "http://localhost:8888/api/bybit/positions/market/advanced",
+							"protocol": "http",
+							"host": ["localhost"],
+							"port": "8888",
+							"path": ["api", "bybit", "positions", "market", "advanced"]
+						}
+					},
+					"response": []
 				}
 			]
 		}

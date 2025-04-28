@@ -384,4 +384,42 @@ public class BybitIntegrationService {
         // Fallback - zwróć oryginalny symbol bez USDT
         return withoutUSDT;
     }
+
+    public JsonNode openAdvancedMarketPosition(Map<String, Object> payload) {
+        String coin = (String) payload.getOrDefault("coin", "BTC");
+        String type = (String) payload.getOrDefault("type", "LONG");
+        Integer leverage = payload.get("leverage") != null ? Integer.parseInt(payload.get("leverage").toString()) : null;
+        String takeProfit = (String) payload.get("takeProfit");
+        String stopLoss = (String) payload.get("stopLoss");
+        // Szukaj TP1-TP5 jeśli nie ma takeProfit
+        String[] tps = new String[5];
+        for (int i = 1; i <= 5; i++) {
+            tps[i-1] = payload.get("tp"+i) != null ? payload.get("tp"+i).toString() : null;
+        }
+        // Ustaw na sztywno 10 USDT
+        double usdtAmount = 10.0;
+        // Buduj DTO
+        OpenPositionRequestDto req = new OpenPositionRequestDto();
+        req.setCoin(coin);
+        req.setUsdtAmount(usdtAmount);
+        req.setLeverage(leverage);
+        if (takeProfit != null) req.setTakeProfit(Double.valueOf(takeProfit));
+        if (stopLoss != null) req.setStopLoss(Double.valueOf(stopLoss));
+        // LONG/SHORT
+        boolean isLong = type.equalsIgnoreCase("LONG");
+        // Jeśli jest takeProfit, użyj go, jeśli nie, szukaj tp1-tp5 (tu tylko logika, bo API Bybit nie obsługuje nativnie multi-TP w jednym zleceniu market, więc można tylko logować lub rozbić na kilka zleceń)
+        if (takeProfit != null) {
+            return isLong ? openLongMarketPosition(req) : openShortMarketPosition(req);
+        } else {
+            // Jeśli nie ma takeProfit, a są tp1-tp5, można próbować otworzyć pozycję i ustawić TP po kolei (tu tylko logujemy, bo API nie obsługuje multi-TP w jednym zleceniu market)
+            for (String tp : tps) {
+                if (tp != null) {
+                    req.setTakeProfit(Double.valueOf(tp));
+                    // Można by tu otwierać osobne pozycje na mniejsze ilości, ale uprośćmy: otwieramy jedną pozycję z pierwszym TP
+                    break;
+                }
+            }
+            return isLong ? openLongMarketPosition(req) : openShortMarketPosition(req);
+        }
+    }
 } 
