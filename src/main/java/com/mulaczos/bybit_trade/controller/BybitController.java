@@ -1,9 +1,9 @@
-package com.bybit.trade.controller;
+package com.mulaczos.bybit_trade.controller;
 
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import com.fasterxml.jackson.databind.JsonNode;
-import com.bybit.trade.service.bybit.BybitIntegrationService;
+import com.mulaczos.bybit_trade.service.BybitIntegrationService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import java.util.Map;

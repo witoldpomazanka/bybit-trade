@@ -1,6 +1,6 @@
-package com.bybit.trade.service.bybit;
+package com.mulaczos.bybit_trade.service;
 
-import com.bybit.trade.dto.OpenPositionRequestDto;
+import com.mulaczos.bybit_trade.dto.OpenPositionRequestDto;
 import com.fasterxml.jackson.databind.JsonNode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;

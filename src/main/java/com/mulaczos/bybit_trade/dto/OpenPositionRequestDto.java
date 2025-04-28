@@ -1,4 +1,4 @@
-package com.bybit.trade.dto;
+package com.mulaczos.bybit_trade.dto;
 
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;

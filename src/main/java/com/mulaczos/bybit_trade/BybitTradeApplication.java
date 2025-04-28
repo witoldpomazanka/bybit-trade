@@ -1,4 +1,4 @@
-package com.bybit.trade;
+package com.mulaczos.bybit_trade;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;

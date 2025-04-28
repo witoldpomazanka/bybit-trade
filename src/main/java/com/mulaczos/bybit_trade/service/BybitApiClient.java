@@ -1,4 +1,4 @@
-package com.bybit.trade.service.bybit;
+package com.mulaczos.bybit_trade.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;

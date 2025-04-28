@@ -1,6 +1,6 @@
-package com.bybit.trade;
+package com.mulaczos.bybit_trade;
 
-import com.bybit.trade.service.bybit.BybitApiClient;
+import com.mulaczos.bybit_trade.service.BybitApiClient;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
