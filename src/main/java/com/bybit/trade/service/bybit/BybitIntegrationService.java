@@ -46,8 +46,44 @@ public class BybitIntegrationService {
             throw new RuntimeException("Nie udało się pobrać salda konta z Bybit", e);
         }
     }
+    
+    // Otwieranie pozycji LONG market
+    public JsonNode openLongMarketPosition(OpenPositionRequestDto request) {
+        log.info("Otwieranie długiej pozycji Market na Bybit: {}", request);
+        return openPosition(request, true, false);
+    }
+    
+    // Otwieranie pozycji SHORT market
+    public JsonNode openShortMarketPosition(OpenPositionRequestDto request) {
+        log.info("Otwieranie krótkiej pozycji Market na Bybit: {}", request);
+        return openPosition(request, false, false);
+    }
+    
+    // Otwieranie pozycji LONG limit
+    public JsonNode openLongLimitPosition(OpenPositionRequestDto request) {
+        log.info("Otwieranie długiej pozycji Limit na Bybit: {}", request);
+        return openPosition(request, true, true);
+    }
+    
+    // Otwieranie pozycji SHORT limit
+    public JsonNode openShortLimitPosition(OpenPositionRequestDto request) {
+        log.info("Otwieranie krótkiej pozycji Limit na Bybit: {}", request);
+        return openPosition(request, false, true);
+    }
+    
+    // Dla kompatybilności
+    public JsonNode openMarketPosition(OpenPositionRequestDto request) {
+        log.info("Otwieranie pozycji Market (stara metoda) na Bybit: {}", request);
+        return openLongMarketPosition(request);
+    }
+    
+    // Dla kompatybilności
+    public JsonNode openLimitPosition(OpenPositionRequestDto request) {
+        log.info("Otwieranie pozycji Limit (stara metoda) na Bybit: {}", request);
+        return openLongLimitPosition(request);
+    }
 
-    public JsonNode openPosition(OpenPositionRequestDto request) {
+    private JsonNode openPosition(OpenPositionRequestDto request, boolean isLong, boolean isPostOnlyLimit) {
         try {
             // Budujemy pełny symbol pary walutowej
             String symbol = request.getCoin().toUpperCase() + "USDT";
@@ -61,8 +97,8 @@ public class BybitIntegrationService {
             JsonNode leverageResult = bybitApiClient.setLeverage("linear", symbol, String.valueOf(leverage));
             log.info("Wynik ustawienia dźwigni: {}", leverageResult);
             
-            String side = request.getPositionType().equals("LONG") ? "Buy" : "Sell";
-            String orderType = request.isUsePostOnlyLimit() ? "Limit" : "Market";
+            String side = isLong ? "Buy" : "Sell";
+            String orderType = isPostOnlyLimit ? "Limit" : "Market";
             
             // Pobieranie aktualnej ceny rynkowej
             double currentPrice = getCurrentPrice(symbol);
@@ -111,7 +147,7 @@ public class BybitIntegrationService {
                 request.getStopLoss().toString() : null;
 
             JsonNode result;
-            if (request.isUsePostOnlyLimit()) {
+            if (isPostOnlyLimit) {
                 String limitPrice = calculateLimitPrice(currentPrice, side);
                 
                 log.info("Otwieranie pozycji Post-Only Limit: symbol={}, strona={}, typ={}, ilość={}, cena={}", 

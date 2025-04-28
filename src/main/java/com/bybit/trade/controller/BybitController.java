@@ -29,12 +29,75 @@ public class BybitController {
         return ResponseEntity.ok(result);
     }
 
+    /**
+     * Endpoint do otwierania długiej pozycji za pomocą zlecenia Market.
+     */
+    @PostMapping("/positions/long/market")
+    public ResponseEntity<JsonNode> openLongMarketPosition(@Valid @RequestBody OpenPositionRequestDto request) {
+        log.info("Otrzymano żądanie otwarcia długiej pozycji Market: {}", request);
+        JsonNode result = bybitIntegrationService.openLongMarketPosition(request);
+        log.info("Otwarto długą pozycję Market: {}", result);
+        return ResponseEntity.ok(result);
+    }
+
+    /**
+     * Endpoint do otwierania krótkiej pozycji za pomocą zlecenia Market.
+     */
+    @PostMapping("/positions/short/market")
+    public ResponseEntity<JsonNode> openShortMarketPosition(@Valid @RequestBody OpenPositionRequestDto request) {
+        log.info("Otrzymano żądanie otwarcia krótkiej pozycji Market: {}", request);
+        JsonNode result = bybitIntegrationService.openShortMarketPosition(request);
+        log.info("Otwarto krótką pozycję Market: {}", result);
+        return ResponseEntity.ok(result);
+    }
+
+    /**
+     * Endpoint do otwierania długiej pozycji za pomocą zlecenia Limit (Post-Only).
+     */
+    @PostMapping("/positions/long/limit")
+    public ResponseEntity<JsonNode> openLongLimitPosition(@Valid @RequestBody OpenPositionRequestDto request) {
+        log.info("Otrzymano żądanie otwarcia długiej pozycji Limit (Post-Only): {}", request);
+        JsonNode result = bybitIntegrationService.openLongLimitPosition(request);
+        log.info("Otwarto długą pozycję Limit (Post-Only): {}", result);
+        return ResponseEntity.ok(result);
+    }
+
+    /**
+     * Endpoint do otwierania krótkiej pozycji za pomocą zlecenia Limit (Post-Only).
+     */
+    @PostMapping("/positions/short/limit")
+    public ResponseEntity<JsonNode> openShortLimitPosition(@Valid @RequestBody OpenPositionRequestDto request) {
+        log.info("Otrzymano żądanie otwarcia krótkiej pozycji Limit (Post-Only): {}", request);
+        JsonNode result = bybitIntegrationService.openShortLimitPosition(request);
+        log.info("Otwarto krótką pozycję Limit (Post-Only): {}", result);
+        return ResponseEntity.ok(result);
+    }
+
+    /**
+     * Zachowujemy kompatybilność wsteczną.
+     */
+    @PostMapping("/positions/market/open")
+    public ResponseEntity<JsonNode> openMarketPosition(@Valid @RequestBody OpenPositionRequestDto request) {
+        log.info("Otrzymano żądanie otwarcia pozycji Market (stary endpoint): {}", request);
+        return openLongMarketPosition(request);
+    }
+
+    /**
+     * Zachowujemy kompatybilność wsteczną.
+     */
+    @PostMapping("/positions/limit/open")
+    public ResponseEntity<JsonNode> openLimitPosition(@Valid @RequestBody OpenPositionRequestDto request) {
+        log.info("Otrzymano żądanie otwarcia pozycji Limit (stary endpoint): {}", request);
+        return openLongLimitPosition(request);
+    }
+
+    /**
+     * Zachowujemy kompatybilność wsteczną z istniejącym endpointem.
+     */
     @PostMapping("/positions/open")
     public ResponseEntity<JsonNode> openPosition(@Valid @RequestBody OpenPositionRequestDto request) {
-        log.info("Otrzymano żądanie otwarcia pozycji: {}", request);
-        JsonNode result = bybitIntegrationService.openPosition(request);
-        log.info("Otwarto pozycję: {}", result);
-        return ResponseEntity.ok(result);
+        log.info("Otrzymano żądanie otwarcia pozycji (najstarszy endpoint): {}", request);
+        return openLongLimitPosition(request);
     }
 
     @GetMapping("/account/balance")
