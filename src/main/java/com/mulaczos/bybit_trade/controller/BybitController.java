@@ -1,5 +1,7 @@
 package com.mulaczos.bybit_trade.controller;
 
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
+import com.fasterxml.jackson.databind.node.TextNode;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -38,7 +40,16 @@ public class BybitController {
 
     @PostMapping("/positions/market/advanced")
     public ResponseEntity<JsonNode> openAdvancedMarketPosition(@RequestBody Map<String, Object> payload) {
+        if (payload.containsKey("content")) {
+            return ResponseEntity.ok(JsonNodeFactory.instance.objectNode().set("content", TextNode.valueOf("invalid")));
+        }
         JsonNode result = bybitIntegrationService.openAdvancedMarketPosition(payload);
         return ResponseEntity.ok(result);
+    }
+
+    @PostMapping("/positions/market/advanced/test")
+    public ResponseEntity logRequest(@RequestBody Object payload) {
+        log.info("Received request payload: {}", payload);
+        return ResponseEntity.ok().build();
     }
 } 
