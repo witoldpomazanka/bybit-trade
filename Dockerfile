@@ -3,7 +3,6 @@ WORKDIR /app
 
 # Kopiujemy tylko pom.xml i wykonujemy pobranie zależności
 COPY pom.xml .
-COPY .mvn/ .mvn/
 RUN --mount=type=cache,target=/root/.m2 mvn dependency:go-offline -B
 
 # Kopiujemy kod źródłowy i budujemy aplikację
@@ -17,12 +16,11 @@ WORKDIR /app
 # Kopiujemy tylko jar
 COPY --from=build /app/target/*.jar app.jar
 
-# Definiujemy zmienne środowiskowe
+# Definiujemy tylko domyślne wartości dla niekrytycznych zmiennych
+# Wrażliwe dane powinny być przekazywane podczas uruchamiania kontenera
 ENV SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/bybit_data \
     SPRING_DATASOURCE_USERNAME=postgres \
-    SPRING_DATASOURCE_PASSWORD=postgres \
-    BYBIT_API_KEY=test_api_key \
-    BYBIT_API_SECRET=test_secret_key
+    SPRING_PROFILE=default
 
 EXPOSE 8082
 
