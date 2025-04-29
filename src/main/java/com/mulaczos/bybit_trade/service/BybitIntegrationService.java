@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.mulaczos.bybit_trade.dto.AdvancedMarketPositionRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
@@ -17,7 +18,9 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class BybitIntegrationService {
 
-    private static final BigDecimal MIN_NOTIONAL_VALUE = new BigDecimal("5.0"); // Minimalna wartość zamówienia w USDT
+    @Value("${bybit.min-usdt-amount-for-trade}")
+    private double minUsdtAmountForTrade;
+
     // Twarde minimalne limity narzucone przez Bybit (nie możemy używać mniejszych wartości)
     private static final Map<String, BigDecimal> HARD_MIN_QTY_LIMITS = new HashMap<>();
 
@@ -107,24 +110,22 @@ public class BybitIntegrationService {
         log.debug("Aktualna cena rynkowa dla {}: {}", symbol, price);
 
         // Obliczanie wielkości pozycji
-        BigDecimal notionalValue = request.getUsdtAmount() != null ?
-                request.getUsdtAmount().multiply(BigDecimal.valueOf(request.getLeverage())) :
-                MIN_NOTIONAL_VALUE;
+        BigDecimal positionValueInUsdtAfterLeverageMultiply = request.getUsdtAmount() != null ? request.getUsdtAmount().multiply(BigDecimal.valueOf(request.getLeverage())) :
+                BigDecimal.valueOf(minUsdtAmountForTrade).multiply(BigDecimal.valueOf(request.getLeverage()));
 
-        BigDecimal quantity = calculatePositionSize(symbol, price, notionalValue);
-        String qty = quantity.toString();
-        log.debug("Obliczona wielkość pozycji: {}", qty);
+        BigDecimal quantityInCrypto = positionValueInUsdtAfterLeverageMultiply.divide(price, 8, RoundingMode.HALF_UP);
+
+        log.debug("Obliczona wielkość pozycji: {}", quantityInCrypto);
 
         // Otwarcie pozycji
-        log.debug("Otwieranie głównej pozycji - symbol: {}, side: {}, qty: {}, takeProfit: {}, stopLoss: {}",
-                symbol, request.getSide(), qty, request.getTakeProfit(), request.getStopLoss());
+        log.debug("Otwieranie głównej pozycji - symbol: {}, side: {}, qty: {}, takeProfit: {}, stopLoss: {}", symbol, request.getSide(), quantityInCrypto, request.getTakeProfit(), request.getStopLoss());
 
         return bybitApiClient.openPosition(
                 "linear",
                 symbol,
                 request.getSide(),
                 "Market",
-                qty,
+                quantityInCrypto.toString(),
                 null,
                 request.getTakeProfit(),
                 request.getStopLoss()
@@ -212,11 +213,11 @@ public class BybitIntegrationService {
         callBybitTradingStop(tpReq);
     }
 
-    private BigDecimal calculatePositionSize(String symbol, BigDecimal price, BigDecimal notionalValue) throws IOException {
+    private BigDecimal calculatePositionSize(String symbol, BigDecimal price, BigDecimal positionValue) throws IOException {
         try {
             BigDecimal minQtyFromApi = getMinimumOrderQuantity(symbol);
             // Oblicz ilość na podstawie ceny
-            BigDecimal quantity = notionalValue.divide(price, 8, RoundingMode.HALF_UP);
+            BigDecimal quantity = positionValue.divide(price, 8, RoundingMode.HALF_UP);
 
             if (quantity.compareTo(minQtyFromApi) < 0) {
                 quantity = minQtyFromApi;
@@ -225,14 +226,14 @@ public class BybitIntegrationService {
             quantity = roundToValidQuantity(quantity, qtyStep);
 
             BigDecimal orderValue = quantity.multiply(price);
-            if (orderValue.compareTo(MIN_NOTIONAL_VALUE) < 0) {
+            if (orderValue.compareTo(BigDecimal.valueOf(minUsdtAmountForTrade)) < 0) {
                 quantity = quantity.add(qtyStep);
             }
             return quantity;
         } catch (Exception e) {
             String baseCoin = extractBaseCoinFromSymbol(symbol);
             BigDecimal minQty = HARD_MIN_QTY_LIMITS.getOrDefault(baseCoin, HARD_MIN_QTY_LIMITS.get("DEFAULT"));
-            BigDecimal quantity = notionalValue.divide(price, 8, RoundingMode.HALF_UP);
+            BigDecimal quantity = positionValue.divide(price, 8, RoundingMode.HALF_UP);
             if (quantity.compareTo(minQty) < 0) {
                 quantity = minQty;
             }
