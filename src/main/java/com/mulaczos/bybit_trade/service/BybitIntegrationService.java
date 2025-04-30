@@ -2,6 +2,9 @@ package com.mulaczos.bybit_trade.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.mulaczos.bybit_trade.dto.AdvancedMarketPositionRequest;
+import com.mulaczos.bybit_trade.dto.ScalpRequestDto;
+import com.mulaczos.bybit_trade.dto.TradingResponseDto;
+import com.mulaczos.bybit_trade.exception.BybitApiException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -21,6 +24,9 @@ public class BybitIntegrationService {
     @Value("${bybit.min-usdt-amount-for-trade}")
     private double minUsdtAmountForTrade;
 
+    @Value("${bybit.trade.min-usdt-amount}")
+    private BigDecimal minUsdtAmount;
+
     // Twarde minimalne limity narzucone przez Bybit (nie możemy używać mniejszych wartości)
     private static final Map<String, BigDecimal> HARD_MIN_QTY_LIMITS = new HashMap<>();
 
@@ -31,6 +37,13 @@ public class BybitIntegrationService {
         // Domyślny limit dla innych kryptowalut
         HARD_MIN_QTY_LIMITS.put("DEFAULT", new BigDecimal("0.01"));
     }
+
+    private static final Map<String, BigDecimal> HARD_MIN_QUANTITY_LIMITS = Map.of(
+            "BTC", BigDecimal.valueOf(0.001),
+            "ETH", BigDecimal.valueOf(0.01),
+            "SOL", BigDecimal.valueOf(0.1),
+            "DEFAULT", BigDecimal.valueOf(0.1)
+    );
 
     private final BybitApiClient bybitApiClient;
 
@@ -343,5 +356,55 @@ public class BybitIntegrationService {
             }
         }
         return withoutUSDT;
+    }
+
+    public TradingResponseDto openScalpPosition(ScalpRequestDto request) {
+        log.info("Opening scalp position for request: {}", request);
+
+        try {
+            String symbol = request.getCoin() + "USDT";
+            // Calculate position size based on USDT amount and price
+            BigDecimal quantity = request.getUsdtAmount().divide(request.getUsdtPrice(), 8, RoundingMode.HALF_UP);
+
+            // Prepare the order with trailing stop
+            Map<String, Object> orderParams = new HashMap<>();
+            orderParams.put("category", "linear");
+            orderParams.put("symbol", symbol);
+            orderParams.put("side", "Sell");
+            orderParams.put("orderType", "Market");
+            orderParams.put("qty", quantity.toString());
+            orderParams.put("trailingStop", "0.5"); // 0.5% trailing stop
+            orderParams.put("tpslMode", "Full");
+            
+            // Execute the order
+            JsonNode response = bybitApiClient.openPosition(
+                "linear",
+                symbol,
+                "Buy",
+                "Market",
+                    quantity.toString(),
+                null,
+                null,
+                null
+            );
+            
+            // Set trailing stop separately
+            Map<String, Object> tpReq = new HashMap<>();
+            tpReq.put("category", "linear");
+            tpReq.put("symbol", symbol);
+            tpReq.put("trailingStop", "0.5");
+            tpReq.put("positionIdx", 0);
+            callBybitTradingStop(tpReq);
+            
+            return TradingResponseDto.builder()
+                    .orderId(response.get("result").get("orderId").asText())
+                    .symbol(symbol)
+                    .side("Buy")
+                    .status("SUBMITTED")
+                    .quantity(quantity)
+                    .build();
+        } catch (IOException e) {
+            throw new BybitApiException("Failed to open scalp position", e);
+        }
     }
 } 
