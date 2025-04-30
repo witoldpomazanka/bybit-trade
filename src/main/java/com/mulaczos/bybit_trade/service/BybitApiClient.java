@@ -243,6 +243,17 @@ public class BybitApiClient {
         return executePostRequest(SET_TRADING_STOP_ENDPOINT, stringParams);
     }
 
+    public JsonNode setTrailingStop(String category, String symbol, String trailingStop) throws IOException {
+        TreeMap<String, String> params = new TreeMap<>();
+        params.put("category", category);
+        params.put("symbol", symbol);
+        params.put("trailingStop", trailingStop);
+        params.put("positionIdx", "0");
+        
+        log.info("Ustawianie trailing stop dla symbolu {}: {}%", symbol, trailingStop);
+        return executePostRequest(SET_TRADING_STOP_ENDPOINT, params);
+    }
+
     private String buildQueryString(TreeMap<String, String> params) {
         StringBuilder queryString = new StringBuilder();
         params.forEach((key, value) -> {

@@ -9,6 +9,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import jakarta.annotation.PostConstruct;
 
 import java.io.IOException;
 import java.math.BigDecimal;
@@ -21,6 +22,8 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class BybitIntegrationService {
 
+    private static final int DEFAULT_LEVERAGE = 10;
+    
     @Value("${bybit.min-usdt-amount-for-trade}")
     private double minUsdtAmountForTrade;
 
@@ -43,6 +46,16 @@ public class BybitIntegrationService {
     );
 
     private final BybitApiClient bybitApiClient;
+
+    @PostConstruct
+    public void init() {
+        try {
+            log.info("Inicjalizacja - ustawianie domyślnej dźwigni {}x dla BTCUSDT", DEFAULT_LEVERAGE);
+            setLeverageForSymbol("BTCUSDT", DEFAULT_LEVERAGE);
+        } catch (IOException e) {
+            log.error("Błąd podczas ustawiania domyślnej dźwigni dla BTCUSDT: {}", e.getMessage(), e);
+        }
+    }
 
     public JsonNode getOpenPositions() {
         try {
@@ -360,13 +373,21 @@ public class BybitIntegrationService {
 
         try {
             String symbol = request.getCoin() + "USDT";
+            
+            // Ustawienie dźwigni tylko jeśli jest inna niż domyślna
+            if (request.getLeverage() != DEFAULT_LEVERAGE) {
+                log.info("Zmiana dźwigni z domyślnej {}x na {}x dla {}", DEFAULT_LEVERAGE, request.getLeverage(), symbol);
+                setLeverageForSymbol(symbol, request.getLeverage());
+            }
+            
+            // Obliczenie wielkości pozycji
             double quantity = (request.getUsdtAmount() * request.getLeverage()) / request.getUsdtPrice();
-            BigDecimal rounded = new BigDecimal(quantity)
-                    .setScale(3, RoundingMode.HALF_UP);
+            BigDecimal rounded = new BigDecimal(quantity).setScale(3, RoundingMode.HALF_UP);
             quantity = rounded.doubleValue();
             log.info("Quantity {}", quantity);
-            // Execute the order
-            JsonNode response = bybitApiClient.openPosition(
+            
+            // Otwarcie pozycji
+            JsonNode orderResponse = bybitApiClient.openPosition(
                     "linear",
                     symbol,
                     "Sell",
@@ -374,11 +395,14 @@ public class BybitIntegrationService {
                     String.valueOf(quantity),
                     null,
                     null,
-                    "0.5" // trailing stop 0.5%
+                    null // bez stop loss przy otwieraniu
             );
+            
+            // Ustawienie trailing stop (0.5%)
+            bybitApiClient.setTrailingStop("linear", symbol, "0.5");
 
             return TradingResponseDto.builder()
-                    .orderId(response.get("result").get("orderId").asText())
+                    .orderId(orderResponse.get("result").get("orderId").asText())
                     .symbol(symbol)
                     .side("Sell")
                     .status("SUBMITTED")
