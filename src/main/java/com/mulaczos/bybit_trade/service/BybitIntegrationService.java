@@ -24,9 +24,6 @@ public class BybitIntegrationService {
     @Value("${bybit.min-usdt-amount-for-trade}")
     private double minUsdtAmountForTrade;
 
-    @Value("${bybit.trade.min-usdt-amount}")
-    private BigDecimal minUsdtAmount;
-
     // Twarde minimalne limity narzucone przez Bybit (nie możemy używać mniejszych wartości)
     private static final Map<String, BigDecimal> HARD_MIN_QTY_LIMITS = new HashMap<>();
 
@@ -363,43 +360,27 @@ public class BybitIntegrationService {
 
         try {
             String symbol = request.getCoin() + "USDT";
-            // Calculate position size based on USDT amount and price
-            BigDecimal quantity = request.getUsdtAmount().divide(request.getUsdtPrice(), 8, RoundingMode.HALF_UP);
-
-            // Prepare the order with trailing stop
-            Map<String, Object> orderParams = new HashMap<>();
-            orderParams.put("category", "linear");
-            orderParams.put("symbol", symbol);
-            orderParams.put("side", "Sell");
-            orderParams.put("orderType", "Market");
-            orderParams.put("qty", quantity.toString());
-            orderParams.put("trailingStop", "0.5"); // 0.5% trailing stop
-            orderParams.put("tpslMode", "Full");
-            
+            double quantity = (request.getUsdtAmount() * request.getLeverage()) / request.getUsdtPrice();
+            BigDecimal rounded = new BigDecimal(quantity)
+                    .setScale(3, RoundingMode.HALF_UP);
+            quantity = rounded.doubleValue();
+            log.info("Quantity {}", quantity);
             // Execute the order
             JsonNode response = bybitApiClient.openPosition(
-                "linear",
-                symbol,
-                "Buy",
-                "Market",
-                    quantity.toString(),
-                null,
-                null,
-                null
+                    "linear",
+                    symbol,
+                    "Sell",
+                    "Market",
+                    String.valueOf(quantity),
+                    null,
+                    null,
+                    "0.5" // trailing stop 0.5%
             );
-            
-            // Set trailing stop separately
-            Map<String, Object> tpReq = new HashMap<>();
-            tpReq.put("category", "linear");
-            tpReq.put("symbol", symbol);
-            tpReq.put("trailingStop", "0.5");
-            tpReq.put("positionIdx", 0);
-            callBybitTradingStop(tpReq);
-            
+
             return TradingResponseDto.builder()
                     .orderId(response.get("result").get("orderId").asText())
                     .symbol(symbol)
-                    .side("Buy")
+                    .side("Sell")
                     .status("SUBMITTED")
                     .quantity(quantity)
                     .build();

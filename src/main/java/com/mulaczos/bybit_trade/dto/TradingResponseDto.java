@@ -16,5 +16,5 @@ public class TradingResponseDto {
     private String symbol;
     private String side;
     private String status;
-    private BigDecimal quantity;
+    private double quantity;
 } 

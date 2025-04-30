@@ -12,7 +12,6 @@ Aplikacja do zarządzania handlem kryptowalutami na giełdzie Bybit.
 ## Wymagania
 
 - Java 17
-- PostgreSQL
 - Konto na giełdzie Bybit (oraz klucze API)
 
 ## Konfiguracja
@@ -22,11 +21,6 @@ Aplikacja do zarządzania handlem kryptowalutami na giełdzie Bybit.
 Aplikacja wymaga następujących zmiennych środowiskowych:
 
 ```
-POSTGRES_HOST=localhost
-POSTGRES_PORT=5432
-POSTGRES_DB=bybit_trade
-POSTGRES_USER=user
-POSTGRES_PASSWORD=password
 BYBIT_API_KEY=twój_klucz_api
 BYBIT_API_SECRET=twój_sekret_api
 BYBIT_TESTNET=true   # true dla środowiska testowego, false dla produkcyjnego

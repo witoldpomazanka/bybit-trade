@@ -17,10 +17,7 @@ WORKDIR /app
 COPY --from=build /app/target/*.jar app.jar
 
 # Definiujemy tylko domyślne wartości dla niekrytycznych zmiennych
-# Wrażliwe dane powinny być przekazywane podczas uruchamiania kontenera
-ENV SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/bybit_data \
-    SPRING_DATASOURCE_USERNAME=postgres \
-    SPRING_PROFILE=default
+ENV SPRING_PROFILE=default
 
 EXPOSE 8082
 

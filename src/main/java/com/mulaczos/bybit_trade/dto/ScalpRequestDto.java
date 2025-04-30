@@ -14,6 +14,6 @@ import java.math.BigDecimal;
 public class ScalpRequestDto {
     private String coin;
     private Integer leverage;
-    private BigDecimal usdtPrice;
-    private BigDecimal usdtAmount;
+    private double usdtPrice;
+    private double usdtAmount;
 } 

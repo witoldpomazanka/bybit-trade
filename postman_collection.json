@@ -151,6 +151,31 @@
 						}
 					},
 					"response": []
+				},
+				{
+					"name": "Bybit - SCALP",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"coin\": \"BTC\",\n    \"leverage\": 10,\n    \"usdtAmount\": 20,\n    \"usdtPrice\": 95000\n}"
+						},
+						"url": {
+							"raw": "http://localhost:8888/api/bybit/positions/scalp",
+							"protocol": "http",
+							"host": ["localhost"],
+							"port": "8888",
+							"path": ["api", "bybit", "positions", "scalp"]
+						}
+					},
+					"response": []
 				}
 			]
 		}
