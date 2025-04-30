@@ -19,7 +19,7 @@ COPY --from=build /app/target/*.jar app.jar
 # Definiujemy tylko domyślne wartości dla niekrytycznych zmiennych
 ENV SPRING_PROFILE=default
 
-EXPOSE 8082
+EXPOSE 8888
 
 # Optymalizacje JVM dla kontenerów
 ENTRYPOINT ["java", \
