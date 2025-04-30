@@ -326,7 +326,7 @@ public class BybitApiClient {
                 .addHeader("X-BAPI-TIMESTAMP", String.valueOf(timestamp))
                 .addHeader("X-BAPI-RECV-WINDOW", "5000")
                 .build();
-        
+
         try (Response response = httpClient.newCall(request).execute()) {
             if (!response.isSuccessful()) {
                 throw new IOException("Niepowodzenie zapytania: " + response.code() + " " + response.message());

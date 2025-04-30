@@ -23,7 +23,8 @@ import java.util.Map;
 public class BybitIntegrationService {
 
     private static final int DEFAULT_LEVERAGE = 10;
-    
+    private static final double DEFAULT_TP = 0.05;
+
     @Value("${bybit.min-usdt-amount-for-trade}")
     private double minUsdtAmountForTrade;
 
@@ -368,25 +369,24 @@ public class BybitIntegrationService {
         return withoutUSDT;
     }
 
-    public TradingResponseDto openScalpPosition(ScalpRequestDto request) {
+    public TradingResponseDto openScalpShortPosition(ScalpRequestDto request) {
         log.info("Opening scalp position for request: {}", request);
 
         try {
             String symbol = request.getCoin() + "USDT";
-            
-            // Ustawienie dźwigni tylko jeśli jest inna niż domyślna
             if (request.getLeverage() != DEFAULT_LEVERAGE) {
                 log.info("Zmiana dźwigni z domyślnej {}x na {}x dla {}", DEFAULT_LEVERAGE, request.getLeverage(), symbol);
                 setLeverageForSymbol(symbol, request.getLeverage());
             }
-            
-            // Obliczenie wielkości pozycji
             double quantity = (request.getUsdtAmount() * request.getLeverage()) / request.getUsdtPrice();
             BigDecimal rounded = new BigDecimal(quantity).setScale(3, RoundingMode.HALF_UP);
             quantity = rounded.doubleValue();
             log.info("Quantity {}", quantity);
-            
-            // Otwarcie pozycji
+
+            double retracementPrice = request.getUsdtPrice() * (DEFAULT_TP / request.getLeverage());
+            log.info("Retracement: {}", retracementPrice);
+            double takeProfit = request.getUsdtPrice() - retracementPrice;
+            log.info("Take profit: {}", takeProfit);
             JsonNode orderResponse = bybitApiClient.openPosition(
                     "linear",
                     symbol,
@@ -394,12 +394,14 @@ public class BybitIntegrationService {
                     "Market",
                     String.valueOf(quantity),
                     null,
-                    null,
-                    null // bez stop loss przy otwieraniu
+                    String.valueOf(takeProfit),
+                    null
             );
-            
-            // Ustawienie trailing stop (0.5%)
-            bybitApiClient.setTrailingStop("linear", symbol, "0.5");
+
+            var trailingStopValue = String.valueOf(retracementPrice / 2);
+            log.info("Trailing stop value: {}", trailingStopValue);
+
+            bybitApiClient.setTrailingStop("linear", symbol, trailingStopValue);
 
             return TradingResponseDto.builder()
                     .orderId(orderResponse.get("result").get("orderId").asText())

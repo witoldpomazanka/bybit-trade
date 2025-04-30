@@ -9,7 +9,7 @@ import com.mulaczos.bybit_trade.service.BybitIntegrationService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import java.util.Map;
-import com.mulaczos.bybit_trade.dto.AdvancedMarketPositionRequest;
+
 import com.mulaczos.bybit_trade.dto.TradingResponseDto;
 import com.mulaczos.bybit_trade.dto.ScalpRequestDto;
 
@@ -58,6 +58,6 @@ public class BybitController {
 
     @PostMapping("/positions/scalp")
     public ResponseEntity<TradingResponseDto> openScalpPosition(@RequestBody ScalpRequestDto request) {
-        return ResponseEntity.ok(bybitIntegrationService.openScalpPosition(request));
+        return ResponseEntity.ok(bybitIntegrationService.openScalpShortPosition(request));
     }
 } 
