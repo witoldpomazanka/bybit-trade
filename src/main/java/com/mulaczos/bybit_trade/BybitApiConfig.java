@@ -21,10 +21,10 @@ public class BybitApiConfig {
 
     @Bean
     public BybitApiClient bybitApiClient() {
-        String baseUrl = isTestnet 
-                ? "https://api-testnet.bybit.com" 
+        String baseUrl = isTestnet
+                ? "https://api-testnet.bybit.com"
                 : "https://api.bybit.com";
-        
+
         log.info("Inicjalizacja klienta Bybit API. Testnet: {}", isTestnet);
         return new BybitApiClient(apiKey, secretKey, baseUrl);
     }

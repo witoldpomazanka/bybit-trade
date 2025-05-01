@@ -1,7 +1,9 @@
 package com.mulaczos.bybit_trade.service;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import okhttp3.*;
 import org.apache.commons.codec.binary.Hex;
@@ -14,11 +16,12 @@ import java.nio.charset.StandardCharsets;
 import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
-import java.util.TreeMap;
 import java.util.Map;
+import java.util.TreeMap;
 
 @Slf4j
 @Service
+@RequiredArgsConstructor
 public class BybitApiClient {
 
     private static final String POSITIONS_ENDPOINT = "/v5/position/list";
@@ -30,139 +33,103 @@ public class BybitApiClient {
     private static final String INSTRUMENTS_INFO_ENDPOINT = "/v5/market/instruments-info";
     private static final String SET_TRADING_STOP_ENDPOINT = "/v5/position/trading-stop";
     private static final String HMAC_SHA256 = "HmacSHA256";
-    
+
     private final String apiKey;
     private final String secretKey;
     private final String baseUrl;
-    private final OkHttpClient httpClient;
-    private final ObjectMapper objectMapper;
+    private final OkHttpClient httpClient = new OkHttpClient();
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
-    public BybitApiClient(String apiKey, String secretKey, String baseUrl) {
-        this.apiKey = apiKey;
-        this.secretKey = secretKey;
-        this.baseUrl = baseUrl;
-        this.httpClient = new OkHttpClient();
-        this.objectMapper = new ObjectMapper();
-    }
-
-    public JsonNode getPositions(String category, String settleCoin) throws IOException {
+    public JsonNode getPositions(String category, String settleCoin) {
         TreeMap<String, String> params = new TreeMap<>();
         params.put("category", category);
         params.put("settleCoin", settleCoin);
-        
         return executeGetRequest(POSITIONS_ENDPOINT, params);
     }
 
-    public JsonNode getWalletBalance(String accountType) throws IOException {
+    public JsonNode getWalletBalance(String accountType) {
         TreeMap<String, String> params = new TreeMap<>();
         params.put("accountType", accountType);
-        
         return executeGetRequest(WALLET_BALANCE_ENDPOINT, params);
     }
 
-    public JsonNode setLeverage(String category, String symbol, String leverage) throws IOException {
+    public JsonNode setLeverage(String category, String symbol, String leverage) {
         TreeMap<String, String> params = new TreeMap<>();
         params.put("category", category);
         params.put("symbol", symbol);
         params.put("buyLeverage", leverage);
         params.put("sellLeverage", leverage);
-        
+
         log.info("Ustawianie dźwigni dla symbolu {}: {}x", symbol, leverage);
         return executePostRequest(SET_LEVERAGE_ENDPOINT, params);
     }
 
-    public JsonNode openPosition(String category, String symbol, String side, String orderType, 
-                                String qty, String price, String takeProfit, String stopLoss) throws IOException {
+    public JsonNode openPosition(String category, String symbol, String side, String orderType,
+                                 String qty, String price, String takeProfit, String stopLoss) {
         TreeMap<String, String> params = new TreeMap<>();
         params.put("category", category);
         params.put("symbol", symbol);
         params.put("side", side);
         params.put("orderType", orderType);
         params.put("qty", qty);
-        
+
         if (price != null && !price.isEmpty()) {
             params.put("price", price);
         }
-        
+
         if (takeProfit != null && !takeProfit.isEmpty()) {
             params.put("takeProfit", takeProfit);
         }
-        
+
         if (stopLoss != null && !stopLoss.isEmpty()) {
             params.put("stopLoss", stopLoss);
         }
-        
+
         params.put("timeInForce", orderType.equals("Limit") ? "PostOnly" : "GTC");
         params.put("positionIdx", "0");
         params.put("reduceOnly", "false");
-        
+
         log.info("Otwieranie pozycji: symbol={}, strona={}, typ={}, ilość={}", symbol, side, orderType, qty);
         return executePostRequest(PLACE_ORDER_ENDPOINT, params);
     }
 
-    public double getMarketPrice(String category, String symbol) throws IOException {
+    public double getMarketPrice(String category, String symbol) {
         TreeMap<String, String> params = new TreeMap<>();
         params.put("category", category);
         params.put("symbol", symbol);
 
-        try {
-            // Najpierw próbujemy pobrać cenę z order booka
-            JsonNode orderBookResult = executeGetRequest(ORDERBOOK_ENDPOINT, params);
-            if (orderBookResult.has("result") && orderBookResult.get("result").has("a") && orderBookResult.get("result").has("b")) {
-                // Pobierz najlepszą cenę ask i bid
-                double bestAsk = Double.parseDouble(orderBookResult.get("result").get("a").get(0).get(0).asText());
-                double bestBid = Double.parseDouble(orderBookResult.get("result").get("b").get(0).get(0).asText());
-                // Zwróć średnią cenę
-                return (bestAsk + bestBid) / 2;
-            }
-        } catch (Exception e) {
-            log.warn("Nie udało się pobrać ceny z order booka dla symbolu {}, próbuję z tickerów", symbol, e);
+        JsonNode orderBookResult = executeGetRequest(ORDERBOOK_ENDPOINT, params);
+        if (orderBookResult.has("result") && orderBookResult.get("result").has("a") && orderBookResult.get("result").has("b")) {
+            double bestAsk = Double.parseDouble(orderBookResult.get("result").get("a").get(0).get(0).asText());
+            double bestBid = Double.parseDouble(orderBookResult.get("result").get("b").get(0).get(0).asText());
+            return (bestAsk + bestBid) / 2;
         }
 
-        // Jeśli nie udało się pobrać z order booka, próbujemy z tickerów
-        try {
-            JsonNode tickersResult = executeGetRequest(TICKERS_ENDPOINT, params);
-            if (tickersResult.has("result") && tickersResult.get("result").has("list")) {
-                JsonNode tickersList = tickersResult.get("result").get("list");
-                if (tickersList.isArray() && tickersList.size() > 0) {
-                    JsonNode firstTicker = tickersList.get(0);
-                    if (firstTicker.has("lastPrice")) {
-                        return Double.parseDouble(firstTicker.get("lastPrice").asText());
-                    }
+        JsonNode tickersResult = executeGetRequest(TICKERS_ENDPOINT, params);
+        if (tickersResult.has("result") && tickersResult.get("result").has("list")) {
+            JsonNode tickersList = tickersResult.get("result").get("list");
+            if (tickersList.isArray() && tickersList.size() > 0) {
+                JsonNode firstTicker = tickersList.get(0);
+                if (firstTicker.has("lastPrice")) {
+                    return Double.parseDouble(firstTicker.get("lastPrice").asText());
                 }
             }
-            
-            // Sprawdzamy kod błędu
-            if (tickersResult.has("retCode") && tickersResult.get("retCode").asInt() != 0) {
-                int errorCode = tickersResult.get("retCode").asInt();
-                String errorMsg = tickersResult.has("retMsg") ? tickersResult.get("retMsg").asText() : "Unknown error";
-                log.error("Błąd API dla symbolu {}: kod={}, wiadomość={}", symbol, errorCode, errorMsg);
-            }
-        } catch (Exception e) {
-            log.error("Wyjątek podczas pobierania ceny z tickerów dla symbolu {}", symbol, e);
         }
-
-        throw new IOException("Nie udało się pobrać ceny rynkowej dla symbolu " + symbol);
+        throw new RuntimeException("Problem z pobraniem ceny");
     }
 
-    public JsonNode getInstrumentsInfo(String category, String symbol) throws IOException {
+    public JsonNode getInstrumentsInfo(String category, String symbol) {
         TreeMap<String, String> params = new TreeMap<>();
         params.put("category", category);
         if (symbol != null && !symbol.isEmpty()) {
             params.put("symbol", symbol);
         }
-        
+
         log.info("Pobieranie informacji o instrumencie: kategoria={}, symbol={}", category, symbol);
         return executeGetRequest(INSTRUMENTS_INFO_ENDPOINT, params);
     }
 
-    /**
-     * Wyszukuje prawidłowy symbol kontraktu dla danego coina
-     * @param coin podstawowy coin (np. "PEPE", "BTC", "DOGE")
-     * @return pełna nazwa symbolu kontraktu (np. "1000PEPEUSDT", "BTCUSDT")
-     * @throws IOException jeśli nie udało się znaleźć symbolu
-     */
-    public String findCorrectSymbol(String coin) throws IOException {
+    public String findCorrectSymbol(String coin) {
         String standardSymbol = coin.toUpperCase() + "USDT";
         TreeMap<String, String> params = new TreeMap<>();
         params.put("category", "linear");
@@ -186,28 +153,22 @@ public class BybitApiClient {
                 }
             }
         }
-        throw new IOException("Nie znaleziono prawidłowego symbolu kontraktu dla coina: " + coin);
+        throw new RuntimeException("Nie znaleziono symbolu dla: {}".formatted(coin));
     }
-    
-    /**
-     * Sprawdza, czy dany symbol jest obsługiwany przez Bybit w określonej kategorii
-     * @param category kategoria (np. "linear")
-     * @param symbol symbol do sprawdzenia
-     * @return true jeśli symbol jest obsługiwany, false w przeciwnym przypadku
-     */
+
     public boolean isSymbolSupported(String category, String symbol) {
         try {
             TreeMap<String, String> params = new TreeMap<>();
             params.put("category", category);
             params.put("symbol", symbol);
-            
+
             JsonNode response = executeGetRequest(INSTRUMENTS_INFO_ENDPOINT, params);
-            
+
             if (response.has("result") && response.get("result").has("list")) {
                 JsonNode list = response.get("result").get("list");
                 return list.isArray() && list.size() > 0;
             }
-            
+
             return false;
         } catch (Exception e) {
             log.warn("Błąd podczas sprawdzania, czy symbol {} jest obsługiwany: {}", symbol, e.getMessage());
@@ -215,41 +176,24 @@ public class BybitApiClient {
         }
     }
 
-    /**
-     * Ustawia take profit, stop loss lub trailing stop dla pozycji
-     * @param params parametry requestu:
-     *               - category: linear/inverse
-     *               - symbol: np. BTCUSDT
-     *               - takeProfit: cena TP
-     *               - stopLoss: cena SL
-     *               - tpslMode: Full/Partial
-     *               - tpSize: ilość kontraktów dla TP (w trybie Partial)
-     *               - slSize: ilość kontraktów dla SL (w trybie Partial)
-     *               - tpOrderType: Market/Limit
-     *               - slOrderType: Market/Limit
-     *               - tpLimitPrice: cena limitowa dla TP (jeśli typ Limit)
-     *               - slLimitPrice: cena limitowa dla SL (jeśli typ Limit)
-     *               - positionIdx: 0 (one-way), 1 (hedge buy), 2 (hedge sell)
-     * @throws IOException jeśli wystąpi błąd podczas wywołania API
-     */
-    public JsonNode setTradingStop(Map<String, Object> params) throws IOException {
+    public JsonNode setTradingStop(Map<String, Object> params) {
         TreeMap<String, String> stringParams = new TreeMap<>();
         // Konwertuj wszystkie parametry na String
         for (Map.Entry<String, Object> entry : params.entrySet()) {
             stringParams.put(entry.getKey(), entry.getValue().toString());
         }
-        
+
         log.info("Ustawianie TP/SL dla pozycji: {}", params);
         return executePostRequest(SET_TRADING_STOP_ENDPOINT, stringParams);
     }
 
-    public JsonNode setTrailingStop(String category, String symbol, String trailingStop) throws IOException {
+    public JsonNode setTrailingStop(String category, String symbol, String trailingStop) {
         TreeMap<String, String> params = new TreeMap<>();
         params.put("category", category);
         params.put("symbol", symbol);
         params.put("trailingStop", trailingStop);
         params.put("positionIdx", "0");
-        
+
         log.info("Ustawianie trailing stop dla symbolu {}: {}%", symbol, trailingStop);
         return executePostRequest(SET_TRADING_STOP_ENDPOINT, params);
     }
@@ -277,15 +221,15 @@ public class BybitApiClient {
         }
     }
 
-    private JsonNode executeGetRequest(String endpoint, TreeMap<String, String> params) throws IOException {
+    private JsonNode executeGetRequest(String endpoint, TreeMap<String, String> params) {
         long timestamp = Instant.now().toEpochMilli();
         String queryString = buildQueryString(params);
-        
+
         String signature = generateSignature(timestamp, queryString);
-        
+
         HttpUrl.Builder urlBuilder = HttpUrl.parse(baseUrl + endpoint).newBuilder();
         params.forEach(urlBuilder::addQueryParameter);
-        
+
         Request request = new Request.Builder()
                 .url(urlBuilder.build())
                 .get()
@@ -294,29 +238,32 @@ public class BybitApiClient {
                 .addHeader("X-BAPI-TIMESTAMP", String.valueOf(timestamp))
                 .addHeader("X-BAPI-RECV-WINDOW", "5000")
                 .build();
-        
+
         try (Response response = httpClient.newCall(request).execute()) {
             if (!response.isSuccessful()) {
                 throw new IOException("Niepowodzenie zapytania: " + response.code() + " " + response.message());
             }
-            
+
             String responseBody = response.body().string();
-            log.debug("Odpowiedź od API Bybit: {}", responseBody);
+            log.info("Odpowiedź od API Bybit: {}", responseBody);
             return objectMapper.readTree(responseBody);
+        } catch (IOException e) {
+            log.error("Błąd wykonywania requestu: {}", e.getMessage(), e);
+            throw new RuntimeException(e);
         }
     }
 
-    private JsonNode executePostRequest(String endpoint, TreeMap<String, String> params) throws IOException {
+    private JsonNode executePostRequest(String endpoint, TreeMap<String, String> params) {
         long timestamp = Instant.now().toEpochMilli();
-        String paramsJson = objectMapper.writeValueAsString(params);
-        
+        String paramsJson = writeValuesAsString(params);
+
         String signature = generateSignature(timestamp, paramsJson);
-        
+
         RequestBody body = RequestBody.create(
-            MediaType.parse("application/json"), 
-            paramsJson
+                MediaType.parse("application/json"),
+                paramsJson
         );
-        
+
         Request request = new Request.Builder()
                 .url(baseUrl + endpoint)
                 .post(body)
@@ -327,14 +274,26 @@ public class BybitApiClient {
                 .addHeader("X-BAPI-RECV-WINDOW", "5000")
                 .build();
 
+        log.debug("Sending request {}", request);
         try (Response response = httpClient.newCall(request).execute()) {
             if (!response.isSuccessful()) {
                 throw new IOException("Niepowodzenie zapytania: " + response.code() + " " + response.message());
             }
-            
+
             String responseBody = response.body().string();
             log.info("Odpowiedź od API Bybit: {}", responseBody);
             return objectMapper.readTree(responseBody);
+        } catch (IOException e) {
+            log.error("Błąd wykonywania requestu: {}", e.getMessage(), e);
+            throw new RuntimeException(e);
+        }
+    }
+
+    private String writeValuesAsString(TreeMap<String, String> params) {
+        try {
+            return objectMapper.writeValueAsString(params);
+        } catch (JsonProcessingException e) {
+            throw new RuntimeException(e);
         }
     }
 } 

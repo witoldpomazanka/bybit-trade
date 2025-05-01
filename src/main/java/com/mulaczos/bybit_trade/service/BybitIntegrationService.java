@@ -4,12 +4,12 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.mulaczos.bybit_trade.dto.AdvancedMarketPositionRequest;
 import com.mulaczos.bybit_trade.dto.ScalpRequestDto;
 import com.mulaczos.bybit_trade.dto.TradingResponseDto;
-import com.mulaczos.bybit_trade.exception.BybitApiException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.context.event.ApplicationStartedEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
-import jakarta.annotation.PostConstruct;
 
 import java.io.IOException;
 import java.math.BigDecimal;
@@ -24,71 +24,51 @@ public class BybitIntegrationService {
 
     private static final int DEFAULT_LEVERAGE = 10;
     private static final double DEFAULT_TP = 0.05;
-
-    @Value("${bybit.min-usdt-amount-for-trade}")
-    private double minUsdtAmountForTrade;
-
-    // Twarde minimalne limity narzucone przez Bybit (nie możemy używać mniejszych wartości)
     private static final Map<String, BigDecimal> HARD_MIN_QTY_LIMITS = new HashMap<>();
+    private static int CURRENT_LEVERAGE;
+    private Double minUsdtAmountForTrade;
 
     static {
         HARD_MIN_QTY_LIMITS.put("BTC", new BigDecimal("0.001")); // Minimalny limit dla BTC to 0.001
         HARD_MIN_QTY_LIMITS.put("ETH", new BigDecimal("0.01"));  // Minimalny limit dla ETH to 0.01
         HARD_MIN_QTY_LIMITS.put("SOL", new BigDecimal("0.1"));   // Minimalny limit dla SOL to 0.1
-        // Domyślny limit dla innych kryptowalut
         HARD_MIN_QTY_LIMITS.put("DEFAULT", new BigDecimal("0.01"));
     }
 
-    private static final Map<String, BigDecimal> HARD_MIN_QUANTITY_LIMITS = Map.of(
-            "BTC", BigDecimal.valueOf(0.001),
-            "ETH", BigDecimal.valueOf(0.01),
-            "SOL", BigDecimal.valueOf(0.1),
-            "DEFAULT", BigDecimal.valueOf(0.1)
-    );
+    public void setMinUsdtAmountForTrade(@Value("${min-usdt-amount-for-trade}") Double minUsdtAmountForTrade) {
+        this.minUsdtAmountForTrade = minUsdtAmountForTrade;
+    }
 
     private final BybitApiClient bybitApiClient;
 
-    @PostConstruct
+    @EventListener(ApplicationStartedEvent.class)
     public void init() {
-        try {
-            log.info("Inicjalizacja - ustawianie domyślnej dźwigni {}x dla BTCUSDT", DEFAULT_LEVERAGE);
-            setLeverageForSymbol("BTCUSDT", DEFAULT_LEVERAGE);
-        } catch (IOException e) {
-            log.error("Błąd podczas ustawiania domyślnej dźwigni dla BTCUSDT: {}", e.getMessage(), e);
-        }
+        log.info("Inicjalizacja - ustawianie domyślnej dźwigni {}x", DEFAULT_LEVERAGE);
+        setLeverageForSymbol("BTCUSDT", DEFAULT_LEVERAGE);
+        log.info("Wartość w USDT dla minimalnego domyślnego zagrania, jeśli nie zdefiniowane w payload: {}", minUsdtAmountForTrade);
     }
 
     public JsonNode getOpenPositions() {
-        try {
-            log.info("Pobieranie otwartych pozycji z Bybit");
-            JsonNode result = bybitApiClient.getPositions("linear", "USDT");
-            log.info("Pobrano dane o otwartych pozycjach: {}", result);
-            return result;
-        } catch (IOException e) {
-            log.error("Błąd podczas pobierania otwartych pozycji z Bybit", e);
-            throw new RuntimeException("Nie udało się pobrać otwartych pozycji z Bybit", e);
-        }
+        log.info("Pobieranie otwartych pozycji z Bybit");
+        JsonNode result = bybitApiClient.getPositions("linear", "USDT");
+        log.info("Pobrano dane o otwartych pozycjach: {}", result);
+        return result;
     }
 
     public JsonNode getAccountBalance() {
-        try {
-            log.info("Pobieranie salda konta z Bybit");
-            JsonNode result = bybitApiClient.getWalletBalance("UNIFIED");
-            log.info("Pobrano dane o saldzie konta: {}", result);
-            return result;
-        } catch (IOException e) {
-            log.error("Błąd podczas pobierania salda konta z Bybit", e);
-            throw new RuntimeException("Nie udało się pobrać salda konta z Bybit", e);
-        }
+        log.info("Pobieranie salda konta z Bybit");
+        JsonNode result = bybitApiClient.getWalletBalance("UNIFIED");
+        log.info("Pobrano dane o saldzie konta: {}", result);
+        return result;
     }
 
     public JsonNode openAdvancedMarketPosition(Map<String, Object> payload) {
-        log.debug("Rozpoczynam otwieranie zaawansowanej pozycji market z payload: {}", payload);
+        log.info("Rozpoczynam otwieranie zaawansowanej pozycji market z payload: {}", payload);
         return openAdvancedMarketPosition(AdvancedMarketPositionRequest.fromMap(payload));
     }
 
     public JsonNode openAdvancedMarketPosition(AdvancedMarketPositionRequest request) {
-        log.debug("Rozpoczynam otwieranie zaawansowanej pozycji market: {}", request);
+        log.info("Rozpoczynam otwieranie zaawansowanej pozycji market: {}", request);
 
         try {
             // 1. Przygotowanie i walidacja symbolu
@@ -105,7 +85,7 @@ public class BybitIntegrationService {
                 configurePartialTakeProfits(symbol, request);
             }
 
-            log.debug("Zakończono otwieranie pozycji z sukcesem");
+            log.info("Zakończono otwieranie pozycji z sukcesem");
             return openResult;
         } catch (IOException e) {
             log.error("Błąd podczas otwierania pozycji na Bybit: {}", e.getMessage(), e);
@@ -114,24 +94,30 @@ public class BybitIntegrationService {
     }
 
     private String prepareAndValidateSymbol(String coin) throws IOException {
+        log.info("Szukanie symbolu dla coina: {}", coin);
         String symbol = bybitApiClient.findCorrectSymbol(coin);
         if (!bybitApiClient.isSymbolSupported("linear", symbol)) {
             throw new RuntimeException("Symbol " + symbol + " nie jest obsługiwany w kategorii linear na Bybit");
         }
-        log.debug("Znaleziony i zwalidowany symbol: {}", symbol);
+        log.info("Znaleziony i zwalidowany symbol: {}", symbol);
         return symbol;
     }
 
-    private void setLeverageForSymbol(String symbol, int leverage) throws IOException {
-        log.debug("Ustawianie dźwigni {}x dla {}", leverage, symbol);
-        bybitApiClient.setLeverage("linear", symbol, String.valueOf(leverage));
+    private void setLeverageForSymbol(String symbol, int leverage) {
+        if (leverage != CURRENT_LEVERAGE) {
+            CURRENT_LEVERAGE = leverage;
+            bybitApiClient.setLeverage("linear", symbol, String.valueOf(leverage));
+            log.info("Ustawiano dźwignię {}x", CURRENT_LEVERAGE);
+        } else {
+            log.info("Obecna dźwignia jest taka sama jak proponowana, nie wysłano requestu o zmianę.");
+        }
     }
 
     private JsonNode openMainPosition(String symbol, AdvancedMarketPositionRequest request) throws IOException {
         // Przygotowanie parametrów zlecenia
         double currentPrice = bybitApiClient.getMarketPrice("linear", symbol);
         BigDecimal price = BigDecimal.valueOf(currentPrice);
-        log.debug("Aktualna cena rynkowa dla {}: {}", symbol, price);
+        log.info("Aktualna cena rynkowa dla {}: {}", symbol, price);
 
         // Obliczanie wielkości pozycji
         BigDecimal positionValueInUsdtAfterLeverageMultiply = request.getUsdtAmount() != null ? request.getUsdtAmount().multiply(BigDecimal.valueOf(request.getLeverage())) :
@@ -139,10 +125,10 @@ public class BybitIntegrationService {
 
         BigDecimal quantityInCrypto = positionValueInUsdtAfterLeverageMultiply.divide(price, 8, RoundingMode.HALF_UP);
 
-        log.debug("Obliczona wielkość pozycji: {}", quantityInCrypto);
+        log.info("Obliczona wielkość pozycji: {}", quantityInCrypto);
 
         // Otwarcie pozycji
-        log.debug("Otwieranie głównej pozycji - symbol: {}, side: {}, qty: {}, takeProfit: {}, stopLoss: {}", symbol, request.getSide(), quantityInCrypto, request.getTakeProfit(), request.getStopLoss());
+        log.info("Otwieranie głównej pozycji - symbol: {}, side: {}, qty: {}, takeProfit: {}, stopLoss: {}", symbol, request.getSide(), quantityInCrypto, request.getTakeProfit(), request.getStopLoss());
 
         return bybitApiClient.openPosition(
                 "linear",
@@ -165,17 +151,17 @@ public class BybitIntegrationService {
         Map<Integer, String> partialTps = request.getPartialTakeProfits();
         int tpCount = partialTps.size();
 
-        log.debug("Konfiguracja partial TP - całkowita ilość: {}, liczba TP: {}", totalQty, tpCount);
+        log.info("Konfiguracja partial TP - całkowita ilość: {}, liczba TP: {}", totalQty, tpCount);
 
         // Pobierz minimalny limit dla danej kryptowaluty
         String baseCoin = extractBaseCoinFromSymbol(symbol);
         BigDecimal minQty = HARD_MIN_QTY_LIMITS.getOrDefault(baseCoin, HARD_MIN_QTY_LIMITS.get("DEFAULT"));
-        log.debug("Minimalny limit dla {}: {}", baseCoin, minQty);
+        log.info("Minimalny limit dla {}: {}", baseCoin, minQty);
 
         // Oblicz równe części dla wszystkich TP oprócz ostatniego
         double basePartSize = Math.floor((totalQty / tpCount) * 100) / 100.0;
         double remainingQty = totalQty;
-        log.debug("Bazowa wielkość dla każdego TP (oprócz ostatniego): {}", basePartSize);
+        log.info("Bazowa wielkość dla każdego TP (oprócz ostatniego): {}", basePartSize);
 
         for (Map.Entry<Integer, String> tp : partialTps.entrySet()) {
             configureSinglePartialTakeProfit(
@@ -209,15 +195,15 @@ public class BybitIntegrationService {
         if (tpNumber == totalTpCount) {
             // Dla ostatniego TP użyj dokładnie tej samej formuły co w starej wersji
             tpSize = remainingQty - (Math.floor(remainingQty / totalTpCount) * (totalTpCount - 1));
-            log.debug("Ostatni TP ({}), użycie pozostałej ilości: {}", tpNumber, tpSize);
+            log.info("Ostatni TP ({}), użycie pozostałej ilości: {}", tpNumber, tpSize);
         } else {
             tpSize = basePartSize;
-            log.debug("TP {}, użycie bazowej wielkości: {}, pozostało: {}", tpNumber, tpSize, remainingQty - basePartSize);
+            log.info("TP {}, użycie bazowej wielkości: {}, pozostało: {}", tpNumber, tpSize, remainingQty - basePartSize);
         }
 
         if (BigDecimal.valueOf(tpSize).compareTo(minQty) < 0) {
             tpSize = minQty.doubleValue();
-            log.debug("Wielkość TP skorygowana do minimalnego limitu: {}", tpSize);
+            log.info("Wielkość TP skorygowana do minimalnego limitu: {}", tpSize);
         }
 
         Map<String, Object> tpReq = new HashMap<>();
@@ -233,7 +219,7 @@ public class BybitIntegrationService {
             tpReq.put("stopLoss", stopLoss);
         }
 
-        log.debug("Ustawianie partial TP {} - parametry: {}", tpNumber, tpReq);
+        log.info("Ustawianie partial TP {} - parametry: {}", tpNumber, tpReq);
         callBybitTradingStop(tpReq);
     }
 
@@ -372,46 +358,42 @@ public class BybitIntegrationService {
     public TradingResponseDto openScalpShortPosition(ScalpRequestDto request) {
         log.info("Opening scalp position for request: {}", request);
 
-        try {
-            String symbol = request.getCoin() + "USDT";
-            if (request.getLeverage() != DEFAULT_LEVERAGE) {
-                log.info("Zmiana dźwigni z domyślnej {}x na {}x dla {}", DEFAULT_LEVERAGE, request.getLeverage(), symbol);
-                setLeverageForSymbol(symbol, request.getLeverage());
-            }
-            double quantity = (request.getUsdtAmount() * request.getLeverage()) / request.getUsdtPrice();
-            BigDecimal rounded = new BigDecimal(quantity).setScale(3, RoundingMode.HALF_UP);
-            quantity = rounded.doubleValue();
-            log.info("Quantity {}", quantity);
-
-            double retracementPrice = request.getUsdtPrice() * (DEFAULT_TP / request.getLeverage());
-            log.info("Retracement: {}", retracementPrice);
-            double takeProfit = request.getUsdtPrice() - retracementPrice;
-            log.info("Take profit: {}", takeProfit);
-            JsonNode orderResponse = bybitApiClient.openPosition(
-                    "linear",
-                    symbol,
-                    "Sell",
-                    "Market",
-                    String.valueOf(quantity),
-                    null,
-                    String.valueOf(takeProfit),
-                    null
-            );
-
-            var trailingStopValue = String.valueOf(retracementPrice / 2);
-            log.info("Trailing stop value: {}", trailingStopValue);
-
-            bybitApiClient.setTrailingStop("linear", symbol, trailingStopValue);
-
-            return TradingResponseDto.builder()
-                    .orderId(orderResponse.get("result").get("orderId").asText())
-                    .symbol(symbol)
-                    .side("Sell")
-                    .status("SUBMITTED")
-                    .quantity(quantity)
-                    .build();
-        } catch (IOException e) {
-            throw new BybitApiException("Failed to open scalp position", e);
+        String symbol = request.getCoin() + "USDT";
+        if (request.getLeverage() != DEFAULT_LEVERAGE) {
+            log.info("Zmiana dźwigni z domyślnej {}x na {}x dla {}", DEFAULT_LEVERAGE, request.getLeverage(), symbol);
+            setLeverageForSymbol(symbol, request.getLeverage());
         }
+        double quantity = (request.getUsdtAmount() * request.getLeverage()) / request.getUsdtPrice();
+        BigDecimal rounded = new BigDecimal(quantity).setScale(3, RoundingMode.HALF_UP);
+        quantity = rounded.doubleValue();
+        log.info("Quantity {}", quantity);
+
+        double retracementPrice = request.getUsdtPrice() * (DEFAULT_TP / request.getLeverage());
+        log.info("Retracement: {}", retracementPrice);
+        double takeProfit = request.getUsdtPrice() - retracementPrice;
+        log.info("Take profit: {}", takeProfit);
+        JsonNode orderResponse = bybitApiClient.openPosition(
+                "linear",
+                symbol,
+                "Sell",
+                "Market",
+                String.valueOf(quantity),
+                null,
+                String.valueOf(takeProfit),
+                null
+        );
+
+        var trailingStopValue = String.valueOf(retracementPrice / 2);
+        log.info("Trailing stop value: {}", trailingStopValue);
+
+        bybitApiClient.setTrailingStop("linear", symbol, trailingStopValue);
+
+        return TradingResponseDto.builder()
+                .orderId(orderResponse.get("result").get("orderId").asText())
+                .symbol(symbol)
+                .side("Sell")
+                .status("SUBMITTED")
+                .quantity(quantity)
+                .build();
     }
 } 

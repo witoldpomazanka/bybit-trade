@@ -1,29 +1,25 @@
 package com.mulaczos.bybit_trade.controller;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.TextNode;
+import com.mulaczos.bybit_trade.dto.ScalpRequestDto;
+import com.mulaczos.bybit_trade.dto.TradingResponseDto;
+import com.mulaczos.bybit_trade.service.BybitIntegrationService;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.mulaczos.bybit_trade.service.BybitIntegrationService;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+
 import java.util.Map;
 
-import com.mulaczos.bybit_trade.dto.TradingResponseDto;
-import com.mulaczos.bybit_trade.dto.ScalpRequestDto;
-
+@Slf4j
 @RestController
+@RequiredArgsConstructor
 @RequestMapping("/api/bybit")
 public class BybitController {
 
-    private static final Logger log = LoggerFactory.getLogger(BybitController.class);
-
     private final BybitIntegrationService bybitIntegrationService;
-
-    public BybitController(BybitIntegrationService bybitIntegrationService) {
-        this.bybitIntegrationService = bybitIntegrationService;
-    }
 
     @GetMapping("/positions/open")
     public ResponseEntity<JsonNode> getOpenPositions() {
