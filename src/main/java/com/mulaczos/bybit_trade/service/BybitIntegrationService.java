@@ -26,6 +26,7 @@ public class BybitIntegrationService {
     private static final double DEFAULT_TP = 0.05;
     private static final Map<String, BigDecimal> HARD_MIN_QTY_LIMITS = new HashMap<>();
     private static int CURRENT_LEVERAGE;
+    @Value("${min-usdt-amount-for-trade}")
     private Double minUsdtAmountForTrade;
 
     static {
@@ -33,10 +34,6 @@ public class BybitIntegrationService {
         HARD_MIN_QTY_LIMITS.put("ETH", new BigDecimal("0.01"));  // Minimalny limit dla ETH to 0.01
         HARD_MIN_QTY_LIMITS.put("SOL", new BigDecimal("0.1"));   // Minimalny limit dla SOL to 0.1
         HARD_MIN_QTY_LIMITS.put("DEFAULT", new BigDecimal("0.01"));
-    }
-
-    public void setMinUsdtAmountForTrade(@Value("${min-usdt-amount-for-trade}") Double minUsdtAmountForTrade) {
-        this.minUsdtAmountForTrade = minUsdtAmountForTrade;
     }
 
     private final BybitApiClient bybitApiClient;
