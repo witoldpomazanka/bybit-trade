@@ -24,6 +24,8 @@ Aplikacja wymaga następujących zmiennych środowiskowych:
 BYBIT_API_KEY=twój_klucz_api
 BYBIT_API_SECRET=twój_sekret_api
 BYBIT_TESTNET=true   # true dla środowiska testowego, false dla produkcyjnego
+MIN_USDT_AMOUNT_FOR_TRADE=50.0   # minimalna kwota w USDT dla transakcji
+RETRACEMENT_DIVIDER=2   # dzielnik dla trailing stop w strategii scalp (domyślnie 2)
 ```
 
 # Budowanie obrazu Docker

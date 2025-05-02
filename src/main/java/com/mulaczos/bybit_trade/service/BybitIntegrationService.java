@@ -29,6 +29,9 @@ public class BybitIntegrationService {
     @Value("${min-usdt-amount-for-trade}")
     private Double minUsdtAmountForTrade;
 
+    @Value("${retracement.divider:2}")
+    private Double retracementDivider;
+
     static {
         HARD_MIN_QTY_LIMITS.put("BTC", new BigDecimal("0.001")); // Minimalny limit dla BTC to 0.001
         HARD_MIN_QTY_LIMITS.put("ETH", new BigDecimal("0.01"));  // Minimalny limit dla ETH to 0.01
@@ -437,7 +440,7 @@ public class BybitIntegrationService {
                 null
         );
 
-        var trailingStopValue = String.valueOf(retracementPrice / 2);
+        var trailingStopValue = String.valueOf(retracementPrice / retracementDivider);
         log.info("Trailing stop value: {}", trailingStopValue);
 
         bybitApiClient.setTrailingStop("linear", symbol, trailingStopValue);
