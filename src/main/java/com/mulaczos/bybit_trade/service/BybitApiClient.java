@@ -162,7 +162,7 @@ public class BybitApiClient {
             params.put("category", category);
             params.put("symbol", symbol);
 
-        JsonNode response = executeGetRequest(INSTRUMENTS_INFO_ENDPOINT, params, true);
+            JsonNode response = executeGetRequest(INSTRUMENTS_INFO_ENDPOINT, params, true);
 
             if (response.has("result") && response.get("result").has("list")) {
                 JsonNode list = response.get("result").get("list");
