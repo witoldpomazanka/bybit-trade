@@ -120,7 +120,7 @@ public class BybitIntegrationService {
         BigDecimal positionValueInUsdtAfterLeverageMultiply = request.getUsdtAmount() != null ? request.getUsdtAmount().multiply(BigDecimal.valueOf(request.getLeverage())) :
                 BigDecimal.valueOf(minUsdtAmountForTrade).multiply(BigDecimal.valueOf(request.getLeverage()));
 
-        BigDecimal quantityInCrypto = positionValueInUsdtAfterLeverageMultiply.divide(price, 8, RoundingMode.HALF_UP);
+        BigDecimal quantityInCrypto = calculatePositionSize(symbol, price, positionValueInUsdtAfterLeverageMultiply);
 
         log.info("Obliczona wielkość pozycji: {}", quantityInCrypto);
 
@@ -220,7 +220,7 @@ public class BybitIntegrationService {
         callBybitTradingStop(tpReq);
     }
 
-    private BigDecimal calculatePositionSize(String symbol, BigDecimal price, BigDecimal positionValue) throws IOException {
+    private BigDecimal calculatePositionSize(String symbol, BigDecimal price, BigDecimal positionValue) {
         try {
             BigDecimal minQtyFromApi = getMinimumOrderQuantity(symbol);
             // Oblicz ilość na podstawie ceny

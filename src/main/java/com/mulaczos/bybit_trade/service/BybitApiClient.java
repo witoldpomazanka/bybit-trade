@@ -44,13 +44,13 @@ public class BybitApiClient {
         TreeMap<String, String> params = new TreeMap<>();
         params.put("category", category);
         params.put("settleCoin", settleCoin);
-        return executeGetRequest(POSITIONS_ENDPOINT, params);
+        return executeGetRequest(POSITIONS_ENDPOINT, params, false);
     }
 
     public JsonNode getWalletBalance(String accountType) {
         TreeMap<String, String> params = new TreeMap<>();
         params.put("accountType", accountType);
-        return executeGetRequest(WALLET_BALANCE_ENDPOINT, params);
+        return executeGetRequest(WALLET_BALANCE_ENDPOINT, params, false);
     }
 
     public JsonNode setLeverage(String category, String symbol, String leverage) {
@@ -98,14 +98,14 @@ public class BybitApiClient {
         params.put("category", category);
         params.put("symbol", symbol);
 
-        JsonNode orderBookResult = executeGetRequest(ORDERBOOK_ENDPOINT, params);
+        JsonNode orderBookResult = executeGetRequest(ORDERBOOK_ENDPOINT, params, false);
         if (orderBookResult.has("result") && orderBookResult.get("result").has("a") && orderBookResult.get("result").has("b")) {
             double bestAsk = Double.parseDouble(orderBookResult.get("result").get("a").get(0).get(0).asText());
             double bestBid = Double.parseDouble(orderBookResult.get("result").get("b").get(0).get(0).asText());
             return (bestAsk + bestBid) / 2;
         }
 
-        JsonNode tickersResult = executeGetRequest(TICKERS_ENDPOINT, params);
+        JsonNode tickersResult = executeGetRequest(TICKERS_ENDPOINT, params, false);
         if (tickersResult.has("result") && tickersResult.get("result").has("list")) {
             JsonNode tickersList = tickersResult.get("result").get("list");
             if (tickersList.isArray() && tickersList.size() > 0) {
@@ -126,14 +126,14 @@ public class BybitApiClient {
         }
 
         log.info("Pobieranie informacji o instrumencie: kategoria={}, symbol={}", category, symbol);
-        return executeGetRequest(INSTRUMENTS_INFO_ENDPOINT, params);
+        return executeGetRequest(INSTRUMENTS_INFO_ENDPOINT, params, true);
     }
 
     public String findCorrectSymbol(String coin) {
         String standardSymbol = coin.toUpperCase() + "USDT";
         TreeMap<String, String> params = new TreeMap<>();
         params.put("category", "linear");
-        JsonNode instrumentsInfo = executeGetRequest(INSTRUMENTS_INFO_ENDPOINT, params);
+        JsonNode instrumentsInfo = executeGetRequest(INSTRUMENTS_INFO_ENDPOINT, params, true);
         if (instrumentsInfo.has("result") && instrumentsInfo.get("result").has("list")) {
             JsonNode instrumentsList = instrumentsInfo.get("result").get("list");
             if (instrumentsList.isArray() && instrumentsList.size() > 0) {
@@ -162,7 +162,7 @@ public class BybitApiClient {
             params.put("category", category);
             params.put("symbol", symbol);
 
-            JsonNode response = executeGetRequest(INSTRUMENTS_INFO_ENDPOINT, params);
+        JsonNode response = executeGetRequest(INSTRUMENTS_INFO_ENDPOINT, params, true);
 
             if (response.has("result") && response.get("result").has("list")) {
                 JsonNode list = response.get("result").get("list");
@@ -221,7 +221,7 @@ public class BybitApiClient {
         }
     }
 
-    private JsonNode executeGetRequest(String endpoint, TreeMap<String, String> params) {
+    private JsonNode executeGetRequest(String endpoint, TreeMap<String, String> params, boolean omitLoggingResponse) {
         long timestamp = Instant.now().toEpochMilli();
         String queryString = buildQueryString(params);
 
@@ -245,7 +245,9 @@ public class BybitApiClient {
             }
 
             String responseBody = response.body().string();
-            log.info("Odpowiedź od API Bybit: {}", responseBody);
+            if (!omitLoggingResponse) {
+                log.info("Odpowiedź od API Bybit: {}", responseBody);
+            }
             return objectMapper.readTree(responseBody);
         } catch (IOException e) {
             log.error("Błąd wykonywania requestu: {}", e.getMessage(), e);
