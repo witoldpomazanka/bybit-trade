@@ -148,7 +148,7 @@ public class BybitIntegrationService {
                 symbol, request.getSide(), quantityInCrypto, request.getTakeProfit(), request.getStopLoss());
 
         log.info("Wysyłanie zlecenia do Bybit");
-        JsonNode result = bybitApiClient.openPosition(
+        return bybitApiClient.openPosition(
                 "linear",
                 symbol,
                 request.getSide(),
@@ -158,8 +158,6 @@ public class BybitIntegrationService {
                 request.getTakeProfit(),
                 request.getStopLoss()
         );
-        log.info("Otrzymano odpowiedź z Bybit: {}", result);
-        return result;
     }
 
     private boolean shouldConfigurePartialTakeProfits(AdvancedMarketPositionRequest request) {

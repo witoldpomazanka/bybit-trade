@@ -244,6 +244,22 @@ public class BybitApiClient {
         }
     }
 
+    private void validateApiResponse(JsonNode response) {
+        if (response.has("retCode")) {
+            int retCode = response.get("retCode").asInt();
+            String retMsg = response.has("retMsg") ? response.get("retMsg").asText() : "Unknown error";
+
+            if (retCode == 110043) {
+                log.warn("Błąd API: Nie zmodyfikowano dźwigni");
+                return;
+            }
+
+            if (retCode != 0) {
+                throw new RuntimeException("BŁĄD API BYBIT: " + retMsg + " (kod: " + retCode + ")");
+            }
+        }
+    }
+
     private JsonNode executeGetRequest(String endpoint, TreeMap<String, String> params, boolean omitLoggingResponse) {
         long timestamp = Instant.now().toEpochMilli();
         String queryString = buildQueryString(params);
@@ -271,7 +287,9 @@ public class BybitApiClient {
             if (!omitLoggingResponse) {
                 log.info("Odpowiedź od API Bybit: {}", responseBody);
             }
-            return objectMapper.readTree(responseBody);
+            JsonNode result = objectMapper.readTree(responseBody);
+            validateApiResponse(result);
+            return result;
         } catch (IOException e) {
             log.error("Błąd wykonywania requestu: {}", e.getMessage(), e);
             throw new RuntimeException(e);
@@ -307,7 +325,9 @@ public class BybitApiClient {
 
             String responseBody = response.body().string();
             log.info("Odpowiedź od API Bybit: {}", responseBody);
-            return objectMapper.readTree(responseBody);
+            JsonNode result = objectMapper.readTree(responseBody);
+            validateApiResponse(result);
+            return result;
         } catch (IOException e) {
             log.error("Błąd wykonywania requestu: {}", e.getMessage(), e);
             throw new RuntimeException(e);
