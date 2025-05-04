@@ -274,15 +274,19 @@ public class BybitIntegrationService {
             quantity = roundToValidQuantity(quantity, qtyStep);
             log.info("Ilość po zaokrągleniu: {}", quantity);
 
-            log.info("Sprawdzanie minimalnej wartości zamówienia w USDT");
-            BigDecimal orderValue = quantity.multiply(price);
-            log.info("Wartość zamówienia w USDT: {}", orderValue);
-            log.info("Minimalna wymagana wartość w USDT: {}", minUsdtAmountForTrade);
+            // Sprawdzanie minimalnej wartości zamówienia w USDT tylko gdy używamy domyślnej wartości lub podana wartość jest za mała
+            if (positionValue.compareTo(BigDecimal.valueOf(minUsdtAmountForTrade).multiply(BigDecimal.valueOf(DEFAULT_LEVERAGE))) <= 0) {
+                log.info("Sprawdzanie minimalnej wartości zamówienia w USDT");
+                BigDecimal orderValue = quantity.multiply(price);
+                log.info("Wartość zamówienia w USDT: {}", orderValue);
+                log.info("Minimalna wymagana wartość w USDT: {}", minUsdtAmountForTrade);
 
-            if (orderValue.compareTo(BigDecimal.valueOf(minUsdtAmountForTrade)) < 0) {
-                log.info("Wartość zamówienia poniżej minimalnej - zwiększam ilość o jeden krok");
-                quantity = quantity.add(qtyStep);
-                log.info("Skorygowana ilość: {}", quantity);
+                if (orderValue.compareTo(BigDecimal.valueOf(minUsdtAmountForTrade)) < 0) {
+                    log.info("Wartość zamówienia poniżej minimalnej - ustawiam minimalną wartość");
+                    quantity = BigDecimal.valueOf(minUsdtAmountForTrade).divide(price, 8, RoundingMode.UP);
+                    quantity = roundToValidQuantity(quantity, qtyStep);
+                    log.info("Skorygowana ilość: {}", quantity);
+                }
             }
 
             log.info("Obliczanie wielkości pozycji zakończone - wynik: {}", quantity);
