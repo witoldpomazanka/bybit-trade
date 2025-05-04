@@ -6,6 +6,7 @@ import com.mulaczos.bybit_trade.dto.ScalpRequestDto;
 import com.mulaczos.bybit_trade.dto.TradingResponseDto;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.jetbrains.annotations.NotNull;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.event.ApplicationStartedEvent;
 import org.springframework.context.event.EventListener;
@@ -63,38 +64,20 @@ public class BybitIntegrationService {
     }
 
     public JsonNode openAdvancedMarketPosition(Map<String, Object> payload) {
-        log.info("Rozpoczynam otwieranie zaawansowanej pozycji market z payload: {}", payload);
         return openAdvancedMarketPosition(AdvancedMarketPositionRequest.fromMap(payload));
     }
 
     public JsonNode openAdvancedMarketPosition(AdvancedMarketPositionRequest request) {
         log.info("Rozpoczynam otwieranie zaawansowanej pozycji market: {}", request);
-
         try {
-            // 1. Przygotowanie i walidacja symbolu
-            log.info("Krok 1: Przygotowanie i walidacja symbolu");
             String symbol = prepareAndValidateSymbol(request.getCoin());
-            log.info("Symbol przygotowany i zwalidowany: {}", symbol);
-
-            // 2. Ustawienie dźwigni
-            log.info("Krok 2: Ustawianie dźwigni");
             setLeverageForSymbol(symbol, request.getLeverage());
-            log.info("Dźwignia ustawiona na {}x", request.getLeverage());
-
-            // 3. Przygotowanie i otwarcie głównej pozycji
-            log.info("Krok 3: Przygotowanie i otwarcie głównej pozycji");
             JsonNode openResult = openMainPosition(symbol, request);
-            log.info("Główna pozycja otwarta pomyślnie: {}", openResult);
-
-            // 4. Konfiguracja partial take-profits (jeśli są)
             if (shouldConfigurePartialTakeProfits(request)) {
-                log.info("Krok 4: Konfiguracja partial take-profits");
                 configurePartialTakeProfits(symbol, request);
-                log.info("Partial take-profits skonfigurowane pomyślnie");
             } else {
-                log.info("Krok 4: Pominięto konfigurację partial take-profits - nie są wymagane");
+                log.info("Pominięto konfigurację partial take-profits - nie są wymagane");
             }
-
             log.info("Zakończono otwieranie pozycji z sukcesem");
             return openResult;
         } catch (IOException e) {
@@ -124,21 +107,14 @@ public class BybitIntegrationService {
     }
 
     private JsonNode openMainPosition(String symbol, AdvancedMarketPositionRequest request) throws IOException {
-        log.info("Rozpoczynam przygotowanie głównej pozycji");
-
-        // Przygotowanie parametrów zlecenia
         log.info("Pobieranie aktualnej ceny rynkowej dla {}", symbol);
         double currentPrice = bybitApiClient.getMarketPrice("linear", symbol);
         BigDecimal price = BigDecimal.valueOf(currentPrice);
         log.info("Aktualna cena rynkowa dla {}: {}", symbol, price);
 
         // Obliczanie wielkości pozycji
-        log.info("Obliczanie wartości pozycji w USDT");
-        BigDecimal positionValueInUsdtAfterLeverageMultiply = request.getUsdtAmount() != null ? request.getUsdtAmount().multiply(BigDecimal.valueOf(request.getLeverage())) :
-                BigDecimal.valueOf(minUsdtAmountForTrade).multiply(BigDecimal.valueOf(request.getLeverage()));
-        log.info("Wartość pozycji po uwzględnieniu dźwigni: {}", positionValueInUsdtAfterLeverageMultiply);
+        BigDecimal positionValueInUsdtAfterLeverageMultiply = getPositionValueInUsdtAfterLeverageMultiply(request);
 
-        log.info("Obliczanie wielkości pozycji w kryptowalucie");
         BigDecimal quantityInCrypto = calculatePositionSize(symbol, price, positionValueInUsdtAfterLeverageMultiply);
         log.info("Obliczona wielkość pozycji: {}", quantityInCrypto);
 
@@ -158,6 +134,18 @@ public class BybitIntegrationService {
                 request.getTakeProfit(),
                 request.getStopLoss()
         );
+    }
+
+    @NotNull
+    private BigDecimal getPositionValueInUsdtAfterLeverageMultiply(AdvancedMarketPositionRequest request) {
+        BigDecimal bigDecimal = request.getUsdtAmount() != null ? request.getUsdtAmount().multiply(BigDecimal.valueOf(request.getLeverage())) :
+                BigDecimal.valueOf(minUsdtAmountForTrade).multiply(BigDecimal.valueOf(request.getLeverage()));
+        if (request.getUsdtAmount() != null) {
+            log.info("[getUsdtAmount] Wartość pozycji w USDT po uwzględnieniu dźwigni (dźwignia * cena z requestu): {}", bigDecimal);
+        } else {
+            log.info("[minUsdtAmountForTrade] Wartość pozycji w USDT po uwzględnieniu dźwigni (dźwignia * cena minimalna): {}", bigDecimal);
+        }
+        return bigDecimal;
     }
 
     private boolean shouldConfigurePartialTakeProfits(AdvancedMarketPositionRequest request) {

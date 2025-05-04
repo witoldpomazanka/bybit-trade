@@ -98,7 +98,7 @@ public class BybitApiClient {
         params.put("category", category);
         params.put("symbol", symbol);
 
-        JsonNode orderBookResult = executeGetRequest(ORDERBOOK_ENDPOINT, params, false);
+        JsonNode orderBookResult = executeGetRequest(ORDERBOOK_ENDPOINT, params, true);
         if (orderBookResult.has("result") && orderBookResult.get("result").has("a") && orderBookResult.get("result").has("b")) {
             double bestAsk = Double.parseDouble(orderBookResult.get("result").get("a").get(0).get(0).asText());
             double bestBid = Double.parseDouble(orderBookResult.get("result").get("b").get(0).get(0).asText());
