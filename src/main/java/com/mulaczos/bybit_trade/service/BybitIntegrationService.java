@@ -6,7 +6,6 @@ import com.mulaczos.bybit_trade.dto.ScalpRequestDto;
 import com.mulaczos.bybit_trade.dto.TradingResponseDto;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.jetbrains.annotations.NotNull;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.event.ApplicationStartedEvent;
 import org.springframework.context.event.EventListener;
@@ -24,6 +23,7 @@ import java.util.Map;
 public class BybitIntegrationService {
 
     private static final int DEFAULT_LEVERAGE = 10;
+    private static int CURRENT_LEVERAGE = DEFAULT_LEVERAGE;
     private static final double DEFAULT_TP = 0.05;
     @Value("${min-usdt-amount-for-trade}")
     private Double minUsdtAmountForTrade;
@@ -90,6 +90,7 @@ public class BybitIntegrationService {
     private void setLeverageForSymbol(String symbol, int leverage) {
         log.info("Ustawianie dźwigni {}x dla symbolu {}", leverage, symbol);
         bybitApiClient.setLeverage("linear", symbol, String.valueOf(leverage));
+        CURRENT_LEVERAGE = leverage;
     }
 
     private JsonNode openMainPosition(String symbol, AdvancedMarketPositionRequest request) throws IOException {
@@ -117,8 +118,10 @@ public class BybitIntegrationService {
         log.info("Obliczona wielkość pozycji: {}", quantityInCrypto);
 
         // Otwarcie pozycji
-        log.info("Parametry zlecenia - symbol: {}, side: {}, qty: {}, takeProfit: {}, stopLoss: {}",
-                symbol, request.getSide(), quantityInCrypto, request.getTakeProfit(), request.getStopLoss());
+        log.info("Parametry zlecenia - symbol: {}, side: {}, qty: {}, takeProfit: {}, stopLoss: {}, obecna dźwignia: {}",
+                symbol, request.getSide(), quantityInCrypto, request.getTakeProfit(), request.getStopLoss(), CURRENT_LEVERAGE);
+
+        log.info("Z konta zostanie pobrane {} USDT", quantityInCrypto.divide(price).divide(new BigDecimal(CURRENT_LEVERAGE)));
 
         log.info("Wysyłanie zlecenia do Bybit");
         return bybitApiClient.openPosition(
@@ -220,18 +223,49 @@ public class BybitIntegrationService {
         callBybitTradingStop(tpReq);
     }
 
+    /**
+     * Pobiera minimalną wartość zlecenia w USDT z API Bybit
+     */
+    public BigDecimal getMinOrderValue(String symbol) throws IOException {
+        JsonNode instrumentInfo = bybitApiClient.getInstrumentsInfo("linear", symbol);
+        if (instrumentInfo.has("result") && instrumentInfo.get("result").has("list")) {
+            JsonNode instrumentList = instrumentInfo.get("result").get("list");
+            if (instrumentList.isArray() && instrumentList.size() > 0) {
+                JsonNode instrument = instrumentList.get(0);
+                if (instrument.has("lotSizeFilter") && instrument.get("lotSizeFilter").has("minNotionalValue")) {
+                    String minNotionalValue = instrument.get("lotSizeFilter").get("minNotionalValue").asText();
+                    return new BigDecimal(minNotionalValue);
+                }
+            }
+        }
+        throw new IOException("Nie udało się pobrać minimalnej wartości zlecenia dla symbolu " + symbol);
+    }
+
     private BigDecimal calculatePositionSize(String symbol, BigDecimal price, BigDecimal positionValue) throws IOException {
         log.info("Rozpoczynam obliczanie wielkości pozycji dla symbolu: {}", symbol);
-        log.info("Parametry wejściowe - cena: {}, wartość pozycji: {}", price, positionValue);
+        log.info("Parametry wejściowe - cena: {}, wartość pozycji po uwzględnieniu dźwigni: {}", price, positionValue);
 
         log.info("Pobieranie minimalnej ilości zamówienia z API");
         BigDecimal minQtyFromApi = getMinimumOrderQuantity(symbol);
         log.info("Minimalna ilość zamówienia z API: {}", minQtyFromApi);
 
+        log.info("Pobieranie minimalnej wartości zlecenia w USDT z API");
+        BigDecimal minOrderValue = getMinOrderValue(symbol);
+        log.info("Minimalna wartość zlecenia w USDT: {}", minOrderValue);
+
         // Oblicz ilość na podstawie ceny
         log.info("Obliczanie podstawowej ilości na podstawie ceny i wartości pozycji");
         BigDecimal quantity = positionValue.divide(price, 8, RoundingMode.HALF_UP);
         log.info("Podstawowa ilość przed walidacją: {}", quantity);
+
+        BigDecimal orderValue = quantity.multiply(price);
+        log.info("Wartość zlecenia w USDT z uwzlgędnieniem dźwigni x{}: {}", orderValue, CURRENT_LEVERAGE);
+        
+        if (orderValue.compareTo(minOrderValue) < 0) {
+            log.info("Wartość zlecenia poniżej minimalnej ({} USDT) - koryguję ilość", minOrderValue);
+            quantity = minOrderValue.divide(price, 8, RoundingMode.UP);
+            log.info("Skorygowana ilość po uwzględnieniu minimalnej wartości USDT: {}", quantity);
+        }
 
         if (quantity.compareTo(minQtyFromApi) < 0) {
             log.info("Ilość poniżej minimalnej - koryguję do minimalnej wartości");
