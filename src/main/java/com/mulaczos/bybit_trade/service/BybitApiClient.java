@@ -133,27 +133,50 @@ public class BybitApiClient {
         String standardSymbol = coin.toUpperCase() + "USDT";
         TreeMap<String, String> params = new TreeMap<>();
         params.put("category", "linear");
-        JsonNode instrumentsInfo = executeGetRequest(INSTRUMENTS_INFO_ENDPOINT, params, true);
-        if (instrumentsInfo.has("result") && instrumentsInfo.get("result").has("list")) {
-            JsonNode instrumentsList = instrumentsInfo.get("result").get("list");
-            if (instrumentsList.isArray() && instrumentsList.size() > 0) {
-                for (JsonNode instrument : instrumentsList) {
-                    if (instrument.has("symbol") && standardSymbol.equals(instrument.get("symbol").asText())) {
-                        return standardSymbol;
+        
+        String nextCursor = null;
+        do {
+            if (nextCursor != null) {
+                params.put("cursor", nextCursor);
+            }
+            
+            JsonNode instrumentsInfo = executeGetRequest(INSTRUMENTS_INFO_ENDPOINT, params, true);
+            if (instrumentsInfo.has("result") && instrumentsInfo.get("result").has("list")) {
+                JsonNode instrumentsList = instrumentsInfo.get("result").get("list");
+                if (instrumentsList.isArray() && instrumentsList.size() > 0) {
+                    // Najpierw szukamy dokładnego dopasowania
+                    for (JsonNode instrument : instrumentsList) {
+                        if (instrument.has("symbol") && standardSymbol.equals(instrument.get("symbol").asText())) {
+                            return standardSymbol;
+                        }
                     }
-                }
-                String coinUpperCase = coin.toUpperCase();
-                for (JsonNode instrument : instrumentsList) {
-                    if (instrument.has("symbol")) {
-                        String symbol = instrument.get("symbol").asText();
-                        if (symbol.contains(coinUpperCase) && symbol.endsWith("USDT")) {
-                            return symbol;
+                    
+                    // Jeśli nie znaleziono dokładnego dopasowania, szukamy częściowego
+                    String coinUpperCase = coin.toUpperCase();
+                    for (JsonNode instrument : instrumentsList) {
+                        if (instrument.has("symbol")) {
+                            String symbol = instrument.get("symbol").asText();
+                            if (symbol.contains(coinUpperCase) && symbol.endsWith("USDT")) {
+                                return symbol;
+                            }
                         }
                     }
                 }
             }
-        }
-        throw new RuntimeException("Nie znaleziono symbolu dla: {}".formatted(coin));
+            
+            // Sprawdź czy jest następna strona
+            nextCursor = instrumentsInfo.has("result") && instrumentsInfo.get("result").has("nextPageCursor") 
+                ? instrumentsInfo.get("result").get("nextPageCursor").asText() 
+                : null;
+                
+            // Jeśli nextCursor jest pusty lub "null", zakończ pętlę
+            if (nextCursor == null || nextCursor.isEmpty() || "null".equals(nextCursor)) {
+                break;
+            }
+            
+        } while (true);
+        
+        throw new RuntimeException("Nie znaleziono symbolu dla: %s".formatted(coin));
     }
 
     public boolean isSymbolSupported(String category, String symbol) {
