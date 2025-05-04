@@ -118,10 +118,10 @@ public class BybitIntegrationService {
         log.info("Obliczona wielkość pozycji: {}", quantityInCrypto);
 
         // Otwarcie pozycji
-        log.info("Parametry zlecenia - symbol: {}, side: {}, qty: {}, takeProfit: {}, stopLoss: {}, obecna dźwignia: {}",
+        log.info("Parametry zlecenia - symbol: {}, side: {}, qty: {}, takeProfit: {}, stopLoss: {}, obecna dźwignia: x{}",
                 symbol, request.getSide(), quantityInCrypto, request.getTakeProfit(), request.getStopLoss(), CURRENT_LEVERAGE);
 
-        log.info("Z konta zostanie pobrane {} USDT", quantityInCrypto.divide(price).divide(new BigDecimal(CURRENT_LEVERAGE)));
+        log.info("Z konta zostanie pobrane {} USDT", quantityInCrypto.multiply(price).divide(new BigDecimal(CURRENT_LEVERAGE),8, RoundingMode.HALF_UP));
 
         log.info("Wysyłanie zlecenia do Bybit");
         return bybitApiClient.openPosition(
