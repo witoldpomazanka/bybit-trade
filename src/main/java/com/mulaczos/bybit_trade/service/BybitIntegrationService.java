@@ -107,19 +107,30 @@ public class BybitIntegrationService {
     }
 
     private JsonNode openMainPosition(String symbol, AdvancedMarketPositionRequest request) throws IOException {
+        log.info("Rozpoczynam przygotowanie głównej pozycji");
+
+        // Przygotowanie parametrów zlecenia
         log.info("Pobieranie aktualnej ceny rynkowej dla {}", symbol);
         double currentPrice = bybitApiClient.getMarketPrice("linear", symbol);
         BigDecimal price = BigDecimal.valueOf(currentPrice);
         log.info("Aktualna cena rynkowa dla {}: {}", symbol, price);
 
         // Obliczanie wielkości pozycji
-        BigDecimal positionValueInUsdtAfterLeverageMultiply = getPositionValueInUsdtAfterLeverageMultiply(request);
+        log.info("Obliczanie wartości pozycji w USDT");
+        BigDecimal positionValueInUsdtAfterLeverageMultiply;
+        if (request.getUsdtAmount() != null) {
+            positionValueInUsdtAfterLeverageMultiply = request.getUsdtAmount().multiply(BigDecimal.valueOf(request.getLeverage()));
+            log.info("Używam wartości z requestu: {}", positionValueInUsdtAfterLeverageMultiply);
+        } else {
+            positionValueInUsdtAfterLeverageMultiply = BigDecimal.valueOf(minUsdtAmountForTrade).multiply(BigDecimal.valueOf(request.getLeverage()));
+            log.info("Używam wartości minimalnej: {}", positionValueInUsdtAfterLeverageMultiply);
+        }
+        log.info("Wartość pozycji po uwzględnieniu dźwigni: {}", positionValueInUsdtAfterLeverageMultiply);
 
         BigDecimal quantityInCrypto = calculatePositionSize(symbol, price, positionValueInUsdtAfterLeverageMultiply);
         log.info("Obliczona wielkość pozycji: {}", quantityInCrypto);
 
         // Otwarcie pozycji
-        log.info("Przygotowanie parametrów zlecenia");
         log.info("Parametry zlecenia - symbol: {}, side: {}, qty: {}, takeProfit: {}, stopLoss: {}",
                 symbol, request.getSide(), quantityInCrypto, request.getTakeProfit(), request.getStopLoss());
 
@@ -134,18 +145,6 @@ public class BybitIntegrationService {
                 request.getTakeProfit(),
                 request.getStopLoss()
         );
-    }
-
-    @NotNull
-    private BigDecimal getPositionValueInUsdtAfterLeverageMultiply(AdvancedMarketPositionRequest request) {
-        BigDecimal bigDecimal = request.getUsdtAmount() != null ? request.getUsdtAmount().multiply(BigDecimal.valueOf(request.getLeverage())) :
-                BigDecimal.valueOf(minUsdtAmountForTrade).multiply(BigDecimal.valueOf(request.getLeverage()));
-        if (request.getUsdtAmount() != null) {
-            log.info("[getUsdtAmount] Wartość pozycji w USDT po uwzględnieniu dźwigni (dźwignia * cena z requestu): {}", bigDecimal);
-        } else {
-            log.info("[minUsdtAmountForTrade] Wartość pozycji w USDT po uwzględnieniu dźwigni (dźwignia * cena minimalna): {}", bigDecimal);
-        }
-        return bigDecimal;
     }
 
     private boolean shouldConfigurePartialTakeProfits(AdvancedMarketPositionRequest request) {
@@ -261,21 +260,6 @@ public class BybitIntegrationService {
             log.info("Zaokrąglanie ilości do prawidłowej wartości");
             quantity = roundToValidQuantity(quantity, qtyStep);
             log.info("Ilość po zaokrągleniu: {}", quantity);
-
-            // Sprawdzanie minimalnej wartości zamówienia w USDT tylko gdy używamy domyślnej wartości lub podana wartość jest za mała
-            if (positionValue.compareTo(BigDecimal.valueOf(minUsdtAmountForTrade).multiply(BigDecimal.valueOf(DEFAULT_LEVERAGE))) <= 0) {
-                log.info("Sprawdzanie minimalnej wartości zamówienia w USDT");
-                BigDecimal orderValue = quantity.multiply(price);
-                log.info("Wartość zamówienia w USDT: {}", orderValue);
-                log.info("Minimalna wymagana wartość w USDT: {}", minUsdtAmountForTrade);
-
-                if (orderValue.compareTo(BigDecimal.valueOf(minUsdtAmountForTrade)) < 0) {
-                    log.info("Wartość zamówienia poniżej minimalnej - ustawiam minimalną wartość");
-                    quantity = BigDecimal.valueOf(minUsdtAmountForTrade).divide(price, 8, RoundingMode.UP);
-                    quantity = roundToValidQuantity(quantity, qtyStep);
-                    log.info("Skorygowana ilość: {}", quantity);
-                }
-            }
 
             log.info("Obliczanie wielkości pozycji zakończone - wynik: {}", quantity);
             return quantity;
