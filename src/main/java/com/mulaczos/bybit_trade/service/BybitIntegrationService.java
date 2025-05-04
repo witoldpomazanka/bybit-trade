@@ -25,20 +25,11 @@ public class BybitIntegrationService {
 
     private static final int DEFAULT_LEVERAGE = 10;
     private static final double DEFAULT_TP = 0.05;
-    private static final Map<String, BigDecimal> HARD_MIN_QTY_LIMITS = new HashMap<>();
-    private static int CURRENT_LEVERAGE;
     @Value("${min-usdt-amount-for-trade}")
     private Double minUsdtAmountForTrade;
 
     @Value("${retracement.divider:2}")
     private Double retracementDivider;
-
-    static {
-        HARD_MIN_QTY_LIMITS.put("BTC", new BigDecimal("0.001")); // Minimalny limit dla BTC to 0.001
-        HARD_MIN_QTY_LIMITS.put("ETH", new BigDecimal("0.01"));  // Minimalny limit dla ETH to 0.01
-        HARD_MIN_QTY_LIMITS.put("SOL", new BigDecimal("0.1"));   // Minimalny limit dla SOL to 0.1
-        HARD_MIN_QTY_LIMITS.put("DEFAULT", new BigDecimal("0.01"));
-    }
 
     private final BybitApiClient bybitApiClient;
 
@@ -97,13 +88,8 @@ public class BybitIntegrationService {
     }
 
     private void setLeverageForSymbol(String symbol, int leverage) {
-        if (leverage != CURRENT_LEVERAGE) {
-            CURRENT_LEVERAGE = leverage;
-            bybitApiClient.setLeverage("linear", symbol, String.valueOf(leverage));
-            log.info("Ustawiano dźwignię {}x", CURRENT_LEVERAGE);
-        } else {
-            log.info("Obecna dźwignia jest taka sama jak proponowana, nie wysłano requestu o zmianę.");
-        }
+        log.info("Ustawianie dźwigni {}x dla symbolu {}", leverage, symbol);
+        bybitApiClient.setLeverage("linear", symbol, String.valueOf(leverage));
     }
 
     private JsonNode openMainPosition(String symbol, AdvancedMarketPositionRequest request) throws IOException {
@@ -163,7 +149,7 @@ public class BybitIntegrationService {
 
         // Pobierz minimalny limit dla danej kryptowaluty
         String baseCoin = extractBaseCoinFromSymbol(symbol);
-        BigDecimal minQty = HARD_MIN_QTY_LIMITS.getOrDefault(baseCoin, HARD_MIN_QTY_LIMITS.get("DEFAULT"));
+        BigDecimal minQty = getMinimumOrderQuantity(symbol);
         log.info("Minimalny limit dla {}: {}", baseCoin, minQty);
 
         // Oblicz równe części dla wszystkich TP oprócz ostatniego
@@ -234,52 +220,34 @@ public class BybitIntegrationService {
         callBybitTradingStop(tpReq);
     }
 
-    private BigDecimal calculatePositionSize(String symbol, BigDecimal price, BigDecimal positionValue) {
+    private BigDecimal calculatePositionSize(String symbol, BigDecimal price, BigDecimal positionValue) throws IOException {
         log.info("Rozpoczynam obliczanie wielkości pozycji dla symbolu: {}", symbol);
         log.info("Parametry wejściowe - cena: {}, wartość pozycji: {}", price, positionValue);
 
-        try {
-            log.info("Pobieranie minimalnej ilości zamówienia z API");
-            BigDecimal minQtyFromApi = getMinimumOrderQuantity(symbol);
-            log.info("Minimalna ilość zamówienia z API: {}", minQtyFromApi);
+        log.info("Pobieranie minimalnej ilości zamówienia z API");
+        BigDecimal minQtyFromApi = getMinimumOrderQuantity(symbol);
+        log.info("Minimalna ilość zamówienia z API: {}", minQtyFromApi);
 
-            // Oblicz ilość na podstawie ceny
-            log.info("Obliczanie podstawowej ilości na podstawie ceny i wartości pozycji");
-            BigDecimal quantity = positionValue.divide(price, 8, RoundingMode.HALF_UP);
-            log.info("Podstawowa ilość przed walidacją: {}", quantity);
+        // Oblicz ilość na podstawie ceny
+        log.info("Obliczanie podstawowej ilości na podstawie ceny i wartości pozycji");
+        BigDecimal quantity = positionValue.divide(price, 8, RoundingMode.HALF_UP);
+        log.info("Podstawowa ilość przed walidacją: {}", quantity);
 
-            if (quantity.compareTo(minQtyFromApi) < 0) {
-                log.info("Ilość poniżej minimalnej - koryguję do minimalnej wartości");
-                quantity = minQtyFromApi;
-            }
-
-            log.info("Pobieranie kroku ilości (qtyStep)");
-            BigDecimal qtyStep = getQuantityStep(symbol);
-            log.info("Krok ilości (qtyStep): {}", qtyStep);
-
-            log.info("Zaokrąglanie ilości do prawidłowej wartości");
-            quantity = roundToValidQuantity(quantity, qtyStep);
-            log.info("Ilość po zaokrągleniu: {}", quantity);
-
-            log.info("Obliczanie wielkości pozycji zakończone - wynik: {}", quantity);
-            return quantity;
-        } catch (Exception e) {
-            log.warn("Wystąpił błąd podczas obliczania wielkości pozycji - używam wartości domyślnych");
-            String baseCoin = extractBaseCoinFromSymbol(symbol);
-            BigDecimal minQty = HARD_MIN_QTY_LIMITS.getOrDefault(baseCoin, HARD_MIN_QTY_LIMITS.get("DEFAULT"));
-            log.info("Używam minimalnej ilości dla {}: {}", baseCoin, minQty);
-
-            BigDecimal quantity = positionValue.divide(price, 8, RoundingMode.HALF_UP);
-            log.info("Obliczona ilość przed walidacją: {}", quantity);
-
-            if (quantity.compareTo(minQty) < 0) {
-                log.info("Ilość poniżej minimalnej - koryguję do minimalnej wartości");
-                quantity = minQty;
-            }
-
-            log.info("Zwracam ilość po korekcie: {}", quantity);
-            return quantity;
+        if (quantity.compareTo(minQtyFromApi) < 0) {
+            log.info("Ilość poniżej minimalnej - koryguję do minimalnej wartości");
+            quantity = minQtyFromApi;
         }
+
+        log.info("Pobieranie kroku ilości (qtyStep)");
+        BigDecimal qtyStep = getQuantityStep(symbol);
+        log.info("Krok ilości (qtyStep): {}", qtyStep);
+
+        log.info("Zaokrąglanie ilości do prawidłowej wartości");
+        quantity = roundToValidQuantity(quantity, qtyStep);
+        log.info("Ilość po zaokrągleniu: {}", quantity);
+
+        log.info("Obliczanie wielkości pozycji zakończone - wynik: {}", quantity);
+        return quantity;
     }
 
     /**
