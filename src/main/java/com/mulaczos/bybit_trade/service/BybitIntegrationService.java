@@ -36,6 +36,7 @@ public class BybitIntegrationService {
 
     private final BybitApiClient bybitApiClient;
     private final ObjectMapper objectMapper = new ObjectMapper();
+    private final TwilioNotificationService twilioNotificationService;
 
     @EventListener(ApplicationStartedEvent.class)
     public void init() {
@@ -66,7 +67,6 @@ public class BybitIntegrationService {
         log.info("Rozpoczynam otwieranie zaawansowanej pozycji market: {}", request);
         try {
             String symbol = prepareAndValidateSymbol(request.getCoin());
-
             JsonNode check = checkIfThePositionForSymbolIsAlreadyOpened(symbol);
             if (check != null) return check;
 
@@ -78,11 +78,26 @@ public class BybitIntegrationService {
                 log.info("Pominięto konfigurację partial take-profits - nie są wymagane");
             }
             log.info("Zakończono otwieranie pozycji z sukcesem");
+            
+            // Wysyłanie powiadomienia SMS
+            sendSms(request, symbol, openResult);
+
             return openResult;
         } catch (IOException e) {
             log.error("Błąd podczas otwierania pozycji na Bybit: {}", e.getMessage(), e);
             throw new RuntimeException("Błąd podczas otwierania pozycji na Bybit: " + e.getMessage(), e);
         }
+    }
+
+    private void sendSms(AdvancedMarketPositionRequest request, String symbol, JsonNode openResult) {
+        twilioNotificationService.sendPositionOpenedNotification(
+                symbol,
+            request.getSide(),
+            openResult.has("result") && openResult.get("result").has("qty")
+                ? openResult.get("result").get("qty").asText()
+                : "nieznana",
+            request.getLeverage()
+        );
     }
 
     @Nullable
@@ -447,6 +462,11 @@ public class BybitIntegrationService {
         log.info("Trailing stop value: {}", trailingStopValue);
 
         bybitApiClient.setTrailingStop("linear", symbol, trailingStopValue);
+        
+        log.info("Zakończono otwieranie pozycji scalp z sukcesem");
+        
+        // Wysyłanie powiadomienia SMS
+        sendScalpSms(request, symbol, quantity);
 
         return TradingResponseDto.builder()
                 .orderId(orderResponse.get("result").get("orderId").asText())
@@ -455,6 +475,15 @@ public class BybitIntegrationService {
                 .status("SUBMITTED")
                 .quantity(quantity)
                 .build();
+    }
+
+    private void sendScalpSms(ScalpRequestDto request, String symbol, double quantity) {
+        twilioNotificationService.sendPositionOpenedNotification(
+                symbol,
+            "Sell",
+            String.valueOf(quantity),
+            request.getLeverage()
+        );
     }
 
     private JsonNode createErrorResponse(String errorMessage) {

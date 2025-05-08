@@ -49,6 +49,13 @@
             <artifactId>commons-codec</artifactId>
             <version>1.15</version>
         </dependency>
+
+        <!-- Twilio dla powiadomień SMS -->
+        <dependency>
+            <groupId>com.twilio.sdk</groupId>
+            <artifactId>twilio</artifactId>
+            <version>9.16.0</version>
+        </dependency>
     </dependencies>
 
     <build>
