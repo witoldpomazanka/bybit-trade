@@ -1,11 +1,14 @@
 package com.mulaczos.bybit_trade.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.mulaczos.bybit_trade.dto.AdvancedMarketPositionRequest;
 import com.mulaczos.bybit_trade.dto.ScalpRequestDto;
 import com.mulaczos.bybit_trade.dto.TradingResponseDto;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.jetbrains.annotations.Nullable;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.event.ApplicationStartedEvent;
 import org.springframework.context.event.EventListener;
@@ -32,6 +35,7 @@ public class BybitIntegrationService {
     private Double retracementDivider;
 
     private final BybitApiClient bybitApiClient;
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     @EventListener(ApplicationStartedEvent.class)
     public void init() {
@@ -62,6 +66,10 @@ public class BybitIntegrationService {
         log.info("Rozpoczynam otwieranie zaawansowanej pozycji market: {}", request);
         try {
             String symbol = prepareAndValidateSymbol(request.getCoin());
+
+            JsonNode check = checkIfThePositionForSymbolIsAlreadyOpened(symbol);
+            if (check != null) return check;
+
             setLeverageForSymbol(symbol, request.getLeverage());
             JsonNode openResult = openMainPosition(symbol, request);
             if (shouldConfigurePartialTakeProfits(request)) {
@@ -75,6 +83,25 @@ public class BybitIntegrationService {
             log.error("Błąd podczas otwierania pozycji na Bybit: {}", e.getMessage(), e);
             throw new RuntimeException("Błąd podczas otwierania pozycji na Bybit: " + e.getMessage(), e);
         }
+    }
+
+    @Nullable
+    private JsonNode checkIfThePositionForSymbolIsAlreadyOpened(String symbol) {
+        log.info("Sprawdzam czy istnieje już otwarta pozycja dla symbolu: {}", symbol);
+        JsonNode openPositions = getOpenPositions();
+        if (openPositions.has("result") && openPositions.get("result").has("list")) {
+            JsonNode positionsList = openPositions.get("result").get("list");
+            for (JsonNode position : positionsList) {
+                if (position.has("symbol") && symbol.equals(position.get("symbol").asText()) &&
+                        position.has("size") && position.get("size").asDouble() > 0) {
+                    log.warn("Znaleziono już otwartą pozycję dla symbolu: {}. Wielkość pozycji: {}",
+                            symbol, position.get("size").asDouble());
+                    return createErrorResponse("Dla symbolu " + symbol + " istnieje już otwarta pozycja. " +
+                            "Zamknij istniejącą pozycję przed otwarciem nowej.");
+                }
+            }
+        }
+        return null;
     }
 
     private String prepareAndValidateSymbol(String coin) throws IOException {
@@ -121,7 +148,7 @@ public class BybitIntegrationService {
         log.info("Parametry zlecenia - symbol: {}, side: {}, qty: {}, takeProfit: {}, stopLoss: {}, obecna dźwignia: x{}",
                 symbol, request.getSide(), quantityInCrypto, request.getTakeProfit(), request.getStopLoss(), CURRENT_LEVERAGE);
 
-        log.info("Z konta zostanie pobrane {} USDT", quantityInCrypto.multiply(price).divide(new BigDecimal(CURRENT_LEVERAGE),8, RoundingMode.HALF_UP));
+        log.info("Z konta zostanie pobrane {} USDT", quantityInCrypto.multiply(price).divide(new BigDecimal(CURRENT_LEVERAGE), 8, RoundingMode.HALF_UP));
 
         log.info("Wysyłanie zlecenia do Bybit");
         return bybitApiClient.openPosition(
@@ -260,7 +287,7 @@ public class BybitIntegrationService {
 
         BigDecimal orderValue = quantity.multiply(price);
         log.info("Wartość zlecenia w USDT z uwzlgędnieniem dźwigni x{}: {}", orderValue, CURRENT_LEVERAGE);
-        
+
         if (orderValue.compareTo(minOrderValue) < 0) {
             log.info("Wartość zlecenia poniżej minimalnej ({} USDT) - koryguję ilość", minOrderValue);
             quantity = minOrderValue.divide(price, 8, RoundingMode.UP);
@@ -428,5 +455,11 @@ public class BybitIntegrationService {
                 .status("SUBMITTED")
                 .quantity(quantity)
                 .build();
+    }
+
+    private JsonNode createErrorResponse(String errorMessage) {
+        ObjectNode response = objectMapper.createObjectNode();
+        response.put("BŁĄD", errorMessage);
+        return response;
     }
 } 
