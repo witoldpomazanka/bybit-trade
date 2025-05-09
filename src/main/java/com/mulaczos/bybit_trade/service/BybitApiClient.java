@@ -40,11 +40,11 @@ public class BybitApiClient {
     private final OkHttpClient httpClient = new OkHttpClient();
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    public JsonNode getPositions(String category, String settleCoin) {
+    public JsonNode getPositions(String category, String settleCoin, boolean ommitLogginResponse) {
         TreeMap<String, String> params = new TreeMap<>();
         params.put("category", category);
         params.put("settleCoin", settleCoin);
-        return executeGetRequest(POSITIONS_ENDPOINT, params, false);
+        return executeGetRequest(POSITIONS_ENDPOINT, params, ommitLogginResponse);
     }
 
     public JsonNode getWalletBalance(String accountType) {

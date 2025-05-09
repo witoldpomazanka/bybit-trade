@@ -50,7 +50,7 @@ public class BybitIntegrationService {
 
     public JsonNode getOpenPositions() {
         log.info("Pobieranie otwartych pozycji z Bybit");
-        JsonNode result = bybitApiClient.getPositions("linear", "USDT");
+        JsonNode result = bybitApiClient.getPositions("linear", "USDT", false);
         log.info("Pobrano dane o otwartych pozycjach: {}", result);
         return result;
     }
@@ -408,7 +408,7 @@ public class BybitIntegrationService {
      */
     private double getOpenedPositionQty(String symbol, String category) {
         try {
-            JsonNode positions = bybitApiClient.getPositions(category, "USDT");
+            JsonNode positions = bybitApiClient.getPositions(category, "USDT", false);
             if (positions.has("result") && positions.get("result").has("list")) {
                 for (JsonNode pos : positions.get("result").get("list")) {
                     if (pos.has("symbol") && symbol.equals(pos.get("symbol").asText())) {

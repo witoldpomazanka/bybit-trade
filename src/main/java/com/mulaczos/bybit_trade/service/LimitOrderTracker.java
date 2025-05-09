@@ -54,7 +54,7 @@ public class LimitOrderTracker {
         order.setLastCheckedAt(LocalDateTime.now());
         
         // 1. Sprawdź czy pozycja została otwarta
-        JsonNode positions = bybitApiClient.getPositions("linear", "USDT");
+        JsonNode positions = bybitApiClient.getPositions("linear", "USDT", true);
         boolean positionFound = false;
         
         if (positions.has("result") && positions.get("result").has("list")) {
