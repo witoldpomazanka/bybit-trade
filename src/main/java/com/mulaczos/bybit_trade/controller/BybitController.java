@@ -36,16 +36,6 @@ public class BybitController {
         log.info("Pobrano saldo konta: {}", result);
         return ResponseEntity.ok(result);
     }
-
-    @PostMapping("/positions/market/advanced")
-    public ResponseEntity<JsonNode> openAdvancedMarketPosition(@RequestBody Map<String, Object> payload) {
-        if (payload.containsKey("content")) {
-            return ResponseEntity.ok(JsonNodeFactory.instance.objectNode().set("content", TextNode.valueOf("invalid")));
-        }
-        JsonNode result = bybitIntegrationService.openAdvancedMarketPosition(payload);
-        log.info("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@");
-        return ResponseEntity.ok(result);
-    }
     
     @PostMapping("/positions/advanced")
     public ResponseEntity<JsonNode> openAdvancedPosition(@RequestBody Map<String, Object> payload) {

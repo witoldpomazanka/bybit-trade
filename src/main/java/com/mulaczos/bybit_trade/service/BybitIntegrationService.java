@@ -62,10 +62,6 @@ public class BybitIntegrationService {
         return result;
     }
 
-    public JsonNode openAdvancedMarketPosition(Map<String, Object> payload) {
-        return openAdvancedMarketPosition(AdvancedMarketPositionRequest.fromMap(payload));
-    }
-
     @Transactional
     public JsonNode openAdvancedPosition(Map<String, Object> payload) {
         return openAdvancedPosition(AdvancedMarketPositionRequest.fromMap(payload));
@@ -147,32 +143,6 @@ public class BybitIntegrationService {
 
                 return openResult;
             }
-        } catch (IOException e) {
-            log.error("Błąd podczas otwierania pozycji na Bybit: {}", e.getMessage(), e);
-            throw new RuntimeException("Błąd podczas otwierania pozycji na Bybit: " + e.getMessage(), e);
-        }
-    }
-
-    public JsonNode openAdvancedMarketPosition(AdvancedMarketPositionRequest request) {
-        log.info("Rozpoczynam otwieranie zaawansowanej pozycji market: {}", request);
-        try {
-            String symbol = prepareAndValidateSymbol(request.getCoin());
-            JsonNode check = checkIfThePositionForSymbolIsAlreadyOpened(symbol);
-            if (check != null) return check;
-
-            setLeverageForSymbol(symbol, request.getLeverage());
-            JsonNode openResult = openMainPosition(symbol, request);
-            if (shouldConfigurePartialTakeProfits(request)) {
-                configurePartialTakeProfits(symbol, request);
-            } else {
-                log.info("Pominięto konfigurację partial take-profits - nie są wymagane");
-            }
-            log.info("Zakończono otwieranie pozycji z sukcesem");
-            
-            // Wysyłanie powiadomienia SMS
-            sendSms(request, symbol, openResult);
-
-            return openResult;
         } catch (IOException e) {
             log.error("Błąd podczas otwierania pozycji na Bybit: {}", e.getMessage(), e);
             throw new RuntimeException("Błąd podczas otwierania pozycji na Bybit: " + e.getMessage(), e);
@@ -278,49 +248,6 @@ public class BybitIntegrationService {
                 orderType,
                 quantityInCrypto.toString(),
                 orderPrice,
-                request.getTakeProfit(),
-                request.getStopLoss()
-        );
-    }
-    
-    private JsonNode openMainPosition(String symbol, AdvancedMarketPositionRequest request) throws IOException {
-        log.info("Rozpoczynam przygotowanie głównej pozycji");
-
-        // Przygotowanie parametrów zlecenia
-        log.info("Pobieranie aktualnej ceny rynkowej dla {}", symbol);
-        double currentPrice = bybitApiClient.getMarketPrice("linear", symbol);
-        BigDecimal price = BigDecimal.valueOf(currentPrice);
-        log.info("Aktualna cena rynkowa dla {}: {}", symbol, price);
-
-        // Obliczanie wielkości pozycji
-        log.info("Obliczanie wartości pozycji w USDT");
-        BigDecimal positionValueInUsdtAfterLeverageMultiply;
-        if (request.getUsdtAmount() != null) {
-            positionValueInUsdtAfterLeverageMultiply = request.getUsdtAmount().multiply(BigDecimal.valueOf(request.getLeverage()));
-            log.info("Używam wartości z requestu: {}", positionValueInUsdtAfterLeverageMultiply);
-        } else {
-            positionValueInUsdtAfterLeverageMultiply = BigDecimal.valueOf(minUsdtAmountForTrade).multiply(BigDecimal.valueOf(request.getLeverage()));
-            log.info("Używam wartości minimalnej: {}", positionValueInUsdtAfterLeverageMultiply);
-        }
-        log.info("Wartość pozycji po uwzględnieniu dźwigni: {}", positionValueInUsdtAfterLeverageMultiply);
-
-        BigDecimal quantityInCrypto = calculatePositionSize(symbol, price, positionValueInUsdtAfterLeverageMultiply);
-        log.info("Obliczona wielkość pozycji: {}", quantityInCrypto);
-
-        // Otwarcie pozycji
-        log.info("Parametry zlecenia - symbol: {}, side: {}, qty: {}, takeProfit: {}, stopLoss: {}, obecna dźwignia: x{}",
-                symbol, request.getSide(), quantityInCrypto, request.getTakeProfit(), request.getStopLoss(), CURRENT_LEVERAGE);
-
-        log.info("Z konta zostanie pobrane {} USDT", quantityInCrypto.multiply(price).divide(new BigDecimal(CURRENT_LEVERAGE), 8, RoundingMode.HALF_UP));
-
-        log.info("Wysyłanie zlecenia do Bybit");
-        return bybitApiClient.openPosition(
-                "linear",
-                symbol,
-                request.getSide(),
-                "Market",
-                quantityInCrypto.toString(),
-                null,
                 request.getTakeProfit(),
                 request.getStopLoss()
         );
