@@ -32,11 +32,9 @@ public class LimitOrderTracker {
     @Scheduled(fixedDelayString = "${limit-order.tracker.check-interval:30000}")
     @Transactional
     public void checkPendingOrders() {
-        log.info("Sprawdzanie oczekujących zleceń limit...");
         List<LimitOrder> pendingOrders = limitOrderService.getPendingOrders();
         
         if (pendingOrders.isEmpty()) {
-            log.info("Brak oczekujących zleceń limit");
             return;
         }
         
