@@ -38,7 +38,7 @@ public class LimitOrderTracker {
             return;
         }
         
-        log.info("Znaleziono {} oczekujących zleceń limit", pendingOrders.size());
+        log.debug("Znaleziono {} oczekujących zleceń limit", pendingOrders.size());
         
         for (LimitOrder order : pendingOrders) {
             try {
@@ -50,8 +50,6 @@ public class LimitOrderTracker {
     }
     
     private void checkOrderStatus(LimitOrder order) {
-        log.info("Sprawdzanie statusu zlecenia: {}, symbol: {}", order.getOrderId(), order.getSymbol());
-        
         // Aktualizacja czasu ostatniego sprawdzenia
         order.setLastCheckedAt(LocalDateTime.now());
         
@@ -83,7 +81,6 @@ public class LimitOrderTracker {
                             order.getQuantity(),
                             order.getLeverage()
                     );
-                    
                     break;
                 }
             }
@@ -93,7 +90,7 @@ public class LimitOrderTracker {
             // Sprawdź czy zlecenie nie zostało anulowane przez użytkownika
             // To bardziej złożone i wymaga dodatkowych zapytań do API Bybit
             // Można rozważyć implementację w przyszłości
-            log.info("Nie znaleziono otwartej pozycji dla zlecenia: {}, symbol: {}", order.getOrderId(), order.getSymbol());
+            log.debug("Nie znaleziono otwartej pozycji dla zlecenia: {}, symbol: {}", order.getOrderId(), order.getSymbol());
         }
     }
     

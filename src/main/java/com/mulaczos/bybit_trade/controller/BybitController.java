@@ -47,12 +47,6 @@ public class BybitController {
         return ResponseEntity.ok(result);
     }
 
-    @PostMapping("/positions/market/advanced/test")
-    public ResponseEntity logRequest(@RequestBody Object payload) {
-        log.info("Received request payload: {}", payload);
-        return ResponseEntity.ok().build();
-    }
-
     @PostMapping("/positions/scalp")
     public ResponseEntity<TradingResponseDto> openScalpPosition(@RequestBody ScalpRequestDto request) {
         return ResponseEntity.ok(bybitIntegrationService.openScalpShortPosition(request));
