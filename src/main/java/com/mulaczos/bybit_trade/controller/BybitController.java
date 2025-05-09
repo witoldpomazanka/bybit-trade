@@ -43,6 +43,17 @@ public class BybitController {
             return ResponseEntity.ok(JsonNodeFactory.instance.objectNode().set("content", TextNode.valueOf("invalid")));
         }
         JsonNode result = bybitIntegrationService.openAdvancedMarketPosition(payload);
+        log.info("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@");
+        return ResponseEntity.ok(result);
+    }
+    
+    @PostMapping("/positions/advanced")
+    public ResponseEntity<JsonNode> openAdvancedPosition(@RequestBody Map<String, Object> payload) {
+        if (payload.containsKey("content")) {
+            return ResponseEntity.ok(JsonNodeFactory.instance.objectNode().set("content", TextNode.valueOf("invalid")));
+        }
+        JsonNode result = bybitIntegrationService.openAdvancedPosition(payload);
+        log.info("------------------------------------------------------------------------------------------------------------------------");
         return ResponseEntity.ok(result);
     }
 

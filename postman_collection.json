@@ -153,6 +153,56 @@
 					"response": []
 				},
 				{
+					"name": "Bybit - ADVANCED - Zlecenie LIMIT",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"coin\": \"BTC\",\n    \"type\": \"SHORT\",\n    \"leverage\": 20,\n    \"usdtAmount\": 100.0,\n    \"orderType\": \"Limit\",\n    \"entryPrice\": \"102000\",\n    \"stopLoss\": \"102800\",\n    \"tp1\": \"100640\",\n    \"tp2\": \"99480\",\n    \"tp3\": \"98300\",\n    \"tp4\": \"97600\",\n    \"tp5\": \"96600\"\n}"
+						},
+						"url": {
+							"raw": "http://localhost:8888/api/bybit/positions/advanced",
+							"protocol": "http",
+							"host": ["localhost"],
+							"port": "8888",
+							"path": ["api", "bybit", "positions", "advanced"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Bybit - ADVANCED - Zlecenie MARKET",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"coin\": \"ETH\",\n    \"type\": \"LONG\",\n    \"leverage\": 15,\n    \"usdtAmount\": 50.0,\n    \"stopLoss\": \"5200\",\n    \"tp1\": \"5500\",\n    \"tp2\": \"5700\",\n    \"tp3\": \"5900\"\n}"
+						},
+						"url": {
+							"raw": "http://localhost:8888/api/bybit/positions/advanced",
+							"protocol": "http",
+							"host": ["localhost"],
+							"port": "8888",
+							"path": ["api", "bybit", "positions", "advanced"]
+						}
+					},
+					"response": []
+				},
+				{
 					"name": "Bybit - SCALP",
 					"request": {
 						"method": "POST",

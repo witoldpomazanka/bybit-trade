@@ -31,6 +31,10 @@ public class AdvancedMarketPositionRequest {
 
     private String stopLoss;
     private String takeProfit;
+    
+    // Nowe pola dla zleceń limit
+    private String orderType;
+    private String entryPrice;
 
     // TP1-TP5
     private Map<Integer, String> partialTakeProfits;
@@ -57,6 +61,15 @@ public class AdvancedMarketPositionRequest {
 
             if (payload.containsKey("takeProfit") && payload.get("takeProfit") != null) {
                 builder.takeProfit(payload.get("takeProfit").toString());
+            }
+            
+            // Nowe pola dla zleceń limit
+            if (payload.containsKey("orderType") && payload.get("orderType") != null) {
+                builder.orderType(payload.get("orderType").toString());
+            }
+            
+            if (payload.containsKey("entryPrice") && payload.get("entryPrice") != null) {
+                builder.entryPrice(payload.get("entryPrice").toString());
             }
 
             // Zbieranie partial take-profits
@@ -89,5 +102,9 @@ public class AdvancedMarketPositionRequest {
 
     public String getSide() {
         return isLong() ? "Buy" : "Sell";
+    }
+    
+    public boolean isLimit() {
+        return "Limit".toLowerCase().equalsIgnoreCase(orderType);
     }
 } 
