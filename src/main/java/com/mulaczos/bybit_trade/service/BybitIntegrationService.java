@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.mulaczos.bybit_trade.dto.AdvancedMarketPositionRequest;
 import com.mulaczos.bybit_trade.dto.ScalpRequestDto;
 import com.mulaczos.bybit_trade.dto.TradingResponseDto;
+import com.mulaczos.bybit_trade.model.LimitOrder;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jetbrains.annotations.Nullable;
@@ -13,6 +14,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.event.ApplicationStartedEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.io.IOException;
 import java.math.BigDecimal;
@@ -37,6 +39,7 @@ public class BybitIntegrationService {
     private final BybitApiClient bybitApiClient;
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final TwilioNotificationService twilioNotificationService;
+    private final LimitOrderService limitOrderService;
 
     @EventListener(ApplicationStartedEvent.class)
     public void init() {
@@ -63,10 +66,12 @@ public class BybitIntegrationService {
         return openAdvancedMarketPosition(AdvancedMarketPositionRequest.fromMap(payload));
     }
 
+    @Transactional
     public JsonNode openAdvancedPosition(Map<String, Object> payload) {
         return openAdvancedPosition(AdvancedMarketPositionRequest.fromMap(payload));
     }
     
+    @Transactional
     public JsonNode openAdvancedPosition(AdvancedMarketPositionRequest request) {
         log.info("Rozpoczynam otwieranie zaawansowanej pozycji: {}", request);
         try {
@@ -75,18 +80,73 @@ public class BybitIntegrationService {
             if (check != null) return check;
 
             setLeverageForSymbol(symbol, request.getLeverage());
-            JsonNode openResult = openPosition(symbol, request);
-            if (shouldConfigurePartialTakeProfits(request)) {
-                configurePartialTakeProfits(symbol, request);
-            } else {
-                log.info("Pominięto konfigurację partial take-profits - nie są wymagane");
-            }
-            log.info("Zakończono otwieranie pozycji z sukcesem");
             
-            // Wysyłanie powiadomienia SMS
-            sendSms(request, symbol, openResult);
+            // Specjalna obsługa dla zleceń limit
+            if (request.isLimit()) {
+                log.info("Wykryto zlecenie limit - specjalna obsługa");
+                
+                // Obliczanie wielkości pozycji
+                BigDecimal quantityInCrypto = calculatePositionSize(symbol, BigDecimal.valueOf(Double.parseDouble(request.getEntryPrice())), 
+                        request.getUsdtAmount() != null ? 
+                            request.getUsdtAmount().multiply(BigDecimal.valueOf(request.getLeverage())) : 
+                            BigDecimal.valueOf(minUsdtAmountForTrade).multiply(BigDecimal.valueOf(request.getLeverage())));
+                
+                // Otwarcie pozycji
+                String orderType = "Limit";
+                String orderPrice = request.getEntryPrice();
+                
+                log.info("Parametry zlecenia limit - symbol: {}, side: {}, cena: {}, qty: {}, stopLoss: {}", 
+                        symbol, request.getSide(), orderPrice, quantityInCrypto, request.getStopLoss());
+                
+                JsonNode openResult = bybitApiClient.openPosition(
+                        "linear",
+                        symbol,
+                        request.getSide(),
+                        orderType,
+                        quantityInCrypto.toString(),
+                        orderPrice,
+                        null, // Brak bezpośredniego TP w zleceniu limit
+                        request.getStopLoss()
+                );
+                
+                // Sprawdź czy zlecenie zostało przyjęte
+                if (openResult.has("retCode") && openResult.get("retCode").asInt() == 0) {
+                    // Zapisz zlecenie limit do bazy
+                    String orderId = openResult.get("result").get("orderId").asText();
+                    LimitOrder savedOrder = limitOrderService.saveLimitOrder(
+                            orderId, request, symbol, quantityInCrypto.toString());
+                    
+                    // Przygotuj odpowiedź
+                    ObjectNode response = objectMapper.createObjectNode();
+                    response.put("orderId", orderId);
+                    response.put("symbol", symbol);
+                    response.put("side", request.getSide());
+                    response.put("type", "Limit");
+                    response.put("entryPrice", request.getEntryPrice());
+                    response.put("quantity", quantityInCrypto.toString());
+                    response.put("status", "PENDING");
+                    response.put("message", "Zlecenie limit zostało złożone. Take-Profit zostanie skonfigurowany automatycznie po realizacji zlecenia.");
+                    
+                    log.info("Zlecenie limit zapisane w bazie, ID: {}", savedOrder.getId());
+                    return response;
+                }
+                
+                return openResult;
+            } else {
+                // Standardowa obsługa dla zleceń market
+                JsonNode openResult = openPosition(symbol, request);
+                if (shouldConfigurePartialTakeProfits(request)) {
+                    configurePartialTakeProfits(symbol, request);
+                } else {
+                    log.info("Pominięto konfigurację partial take-profits - nie są wymagane");
+                }
+                log.info("Zakończono otwieranie pozycji z sukcesem");
+                
+                // Wysyłanie powiadomienia SMS
+                sendSms(request, symbol, openResult);
 
-            return openResult;
+                return openResult;
+            }
         } catch (IOException e) {
             log.error("Błąd podczas otwierania pozycji na Bybit: {}", e.getMessage(), e);
             throw new RuntimeException("Błąd podczas otwierania pozycji na Bybit: " + e.getMessage(), e);
@@ -430,9 +490,12 @@ public class BybitIntegrationService {
                 }
             }
         } catch (Exception e) {
-            throw new RuntimeException("Nie udało się pobrać ilości kontraktów dla symbolu: " + symbol, e);
+            log.warn("Błąd podczas pobierania ilości kontraktów dla symbolu: {}, błąd: {}", 
+                    symbol, e.getMessage());
+            return 0; // Zwracamy 0 zamiast rzucać wyjątek
         }
-        throw new RuntimeException("Nie znaleziono otwartej pozycji dla symbolu: " + symbol);
+        log.warn("Nie znaleziono otwartej pozycji dla symbolu: {}", symbol);
+        return 0; // Zwracamy 0 zamiast rzucać wyjątek
     }
 
     /**

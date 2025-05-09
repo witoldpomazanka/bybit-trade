@@ -105,6 +105,6 @@ public class AdvancedMarketPositionRequest {
     }
     
     public boolean isLimit() {
-        return "Limit".toLowerCase().equalsIgnoreCase(orderType);
+        return "Limit".equalsIgnoreCase(orderType);
     }
 } 
