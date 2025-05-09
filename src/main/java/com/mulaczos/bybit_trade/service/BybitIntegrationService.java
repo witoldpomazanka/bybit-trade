@@ -233,12 +233,14 @@ public class BybitIntegrationService {
             // Dla zleceń limit używamy ceny limitu
             valueToDeduct = quantityInCrypto.multiply(new BigDecimal(request.getEntryPrice()))
                     .divide(new BigDecimal(CURRENT_LEVERAGE), 8, RoundingMode.HALF_UP);
+            log.info("Jeśli zlecenie LIMIT zostanie w pełni zrealizowane, z konta zostanie pobrane około {} USDT (cena limit: {}, ilość: {})", 
+                    valueToDeduct, request.getEntryPrice(), quantityInCrypto);
         } else {
             // Dla zleceń market używamy aktualnej ceny rynkowej
             valueToDeduct = quantityInCrypto.multiply(price)
                     .divide(new BigDecimal(CURRENT_LEVERAGE), 8, RoundingMode.HALF_UP);
+            log.info("Z konta zostanie pobrane {} USDT", valueToDeduct);
         }
-        log.info("Z konta zostanie pobrane {} USDT", valueToDeduct);
 
         log.info("Wysyłanie zlecenia do Bybit");
         return bybitApiClient.openPosition(
