@@ -79,7 +79,8 @@ public class LimitOrderTracker {
                             order.getSymbol(),
                             order.getSide(),
                             order.getQuantity(),
-                            order.getLeverage()
+                            order.getLeverage(),
+                            "TPKI dla limitu"
                     );
                     break;
                 }

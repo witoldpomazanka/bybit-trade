@@ -179,7 +179,8 @@ public class BybitIntegrationService {
                 openResult.has("result") && openResult.get("result").has("qty")
                         ? openResult.get("result").get("qty").asText()
                         : "nieznana",
-                request.getLeverage()
+                request.getLeverage(),
+                request.isLimit() ? "Limit" : "Market"
         );
     }
 
@@ -585,7 +586,8 @@ public class BybitIntegrationService {
                 symbol,
                 "Sell",
                 String.valueOf(quantity),
-                request.getLeverage()
+                request.getLeverage(),
+                "Market"
         );
     }
 

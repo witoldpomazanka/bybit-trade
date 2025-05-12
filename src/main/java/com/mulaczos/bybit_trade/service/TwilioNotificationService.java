@@ -52,8 +52,9 @@ public class TwilioNotificationService {
      * @param side Kierunek pozycji (Buy/Sell)
      * @param quantity Ilość
      * @param leverage Dźwignia
+     * @param orderType Typ zlecenia (Market/Limit)
      */
-    public void sendPositionOpenedNotification(String symbol, String side, String quantity, int leverage) {
+    public void sendPositionOpenedNotification(String symbol, String side, String quantity, int leverage, String orderType) {
         if (!notificationsEnabled) {
             log.debug("Powiadomienia SMS są wyłączone. Pominięto wysyłanie SMS.");
             return;
@@ -61,11 +62,12 @@ public class TwilioNotificationService {
 
         try {
             String messageBody = String.format(
-                "BYBIT TRADE: Otwarto pozycję %s dla %s, ilość: %s, dźwignia: x%d",
+                "BYBIT TRADE: Otwarto pozycję %s dla %s, ilość: %s, dźwignia: x%d, typ: %s",
                 side.equals("Buy") ? "LONG" : "SHORT",
                 symbol,
                 quantity,
-                leverage
+                leverage,
+                orderType
             );
 
             Message message = Message.creator(
