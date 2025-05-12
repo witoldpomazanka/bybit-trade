@@ -6,7 +6,8 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.mulaczos.bybit_trade.dto.AdvancedMarketPositionRequest;
 import com.mulaczos.bybit_trade.dto.ScalpRequestDto;
 import com.mulaczos.bybit_trade.dto.TradingResponseDto;
-import com.mulaczos.bybit_trade.model.LimitOrder;
+import com.mulaczos.bybit_trade.model.TradeHistory;
+import com.mulaczos.bybit_trade.repository.TradeHistoryRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jetbrains.annotations.Nullable;
@@ -19,8 +20,10 @@ import org.springframework.transaction.annotation.Transactional;
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 
 @Slf4j
 @Service
@@ -40,6 +43,7 @@ public class BybitIntegrationService {
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final TwilioNotificationService twilioNotificationService;
     private final LimitOrderService limitOrderService;
+    private final TradeHistoryRepository tradeHistoryRepository;
 
     @EventListener(ApplicationStartedEvent.class)
     public void init() {
@@ -63,37 +67,47 @@ public class BybitIntegrationService {
     }
 
     @Transactional
-    public JsonNode openAdvancedPosition(Map<String, Object> payload) {
-        return openAdvancedPosition(AdvancedMarketPositionRequest.fromMap(payload));
+    public JsonNode openAdvancedPosition(Map<String, Object> payload, String chatTitle) {
+        return openAdvancedPosition(AdvancedMarketPositionRequest.fromMap(payload), chatTitle);
     }
-    
+
     @Transactional
-    public JsonNode openAdvancedPosition(AdvancedMarketPositionRequest request) {
+    public JsonNode openAdvancedPosition(AdvancedMarketPositionRequest request, String chatTitle) {
         log.info("Rozpoczynam otwieranie zaawansowanej pozycji: {}", request);
         try {
             String symbol = prepareAndValidateSymbol(request.getCoin());
+
+            // Sprawdzenie czy istnieje już pozycja dla tego symbolu z tego czatu
+            if (chatTitle != null) {
+                Optional<TradeHistory> existingTrade = tradeHistoryRepository.findFirstBySymbolAndChatTitleOrderByCreatedAtDesc(symbol, chatTitle);
+                if (existingTrade.isPresent()) {
+                    log.warn("Znaleziono istniejącą pozycję dla symbolu {} z czatu {} - pomijam otwieranie nowej pozycji", symbol, chatTitle);
+                    return createErrorResponse("Dla symbolu " + symbol + " z czatu " + chatTitle + " istnieje już otwarta pozycja.");
+                }
+            }
+
             JsonNode check = checkIfThePositionForSymbolIsAlreadyOpened(symbol);
             if (check != null) return check;
 
             setLeverageForSymbol(symbol, request.getLeverage());
-            
+
             // Specjalna obsługa dla zleceń limit
             if (request.isLimit()) {
                 log.info("Wykryto zlecenie limit - specjalna obsługa");
-                
+
                 // Obliczanie wielkości pozycji
-                BigDecimal quantityInCrypto = calculatePositionSize(symbol, BigDecimal.valueOf(Double.parseDouble(request.getEntryPrice())), 
-                        request.getUsdtAmount() != null ? 
-                            request.getUsdtAmount().multiply(BigDecimal.valueOf(request.getLeverage())) : 
-                            BigDecimal.valueOf(minUsdtAmountForTrade).multiply(BigDecimal.valueOf(request.getLeverage())));
-                
+                BigDecimal quantityInCrypto = calculatePositionSize(symbol, BigDecimal.valueOf(Double.parseDouble(request.getEntryPrice())),
+                        request.getUsdtAmount() != null ?
+                                request.getUsdtAmount().multiply(BigDecimal.valueOf(request.getLeverage())) :
+                                BigDecimal.valueOf(minUsdtAmountForTrade).multiply(BigDecimal.valueOf(request.getLeverage())));
+
                 // Otwarcie pozycji
                 String orderType = "Limit";
                 String orderPrice = request.getEntryPrice();
-                
-                log.info("Parametry zlecenia limit - symbol: {}, side: {}, cena: {}, qty: {}, stopLoss: {}", 
+
+                log.info("Parametry zlecenia limit - symbol: {}, side: {}, cena: {}, qty: {}, stopLoss: {}",
                         symbol, request.getSide(), orderPrice, quantityInCrypto, request.getStopLoss());
-                
+
                 JsonNode openResult = bybitApiClient.openPosition(
                         "linear",
                         symbol,
@@ -104,40 +118,30 @@ public class BybitIntegrationService {
                         null, // Brak bezpośredniego TP w zleceniu limit
                         request.getStopLoss()
                 );
-                
-                // Sprawdź czy zlecenie zostało przyjęte
-                if (openResult.has("retCode") && openResult.get("retCode").asInt() == 0) {
-                    // Zapisz zlecenie limit do bazy
+
+                // Zapisywanie historii zlecenia
+                saveTradeHistory(symbol, request, quantityInCrypto.toString(), chatTitle, orderType, orderPrice);
+
+                if (openResult.has("result") && openResult.get("result").has("orderId")) {
                     String orderId = openResult.get("result").get("orderId").asText();
-                    LimitOrder savedOrder = limitOrderService.saveLimitOrder(
-                            orderId, request, symbol, quantityInCrypto.toString());
-                    
-                    // Przygotuj odpowiedź
-                    ObjectNode response = objectMapper.createObjectNode();
-                    response.put("orderId", orderId);
-                    response.put("symbol", symbol);
-                    response.put("side", request.getSide());
-                    response.put("type", "Limit");
-                    response.put("entryPrice", request.getEntryPrice());
-                    response.put("quantity", quantityInCrypto.toString());
-                    response.put("status", "PENDING");
-                    response.put("message", "Zlecenie limit zostało złożone. Take-Profit zostanie skonfigurowany automatycznie po realizacji zlecenia.");
-                    
-                    log.info("Zlecenie limit zapisane w bazie, ID: {}", savedOrder.getId());
-                    return response;
+                    limitOrderService.saveLimitOrder(orderId, request, symbol, quantityInCrypto.toString());
                 }
-                
+                sendSms(request, symbol, openResult);
                 return openResult;
             } else {
                 // Standardowa obsługa dla zleceń market
                 JsonNode openResult = openPosition(symbol, request);
+
+                // Zapisywanie historii zlecenia
+                saveTradeHistory(symbol, request, openResult.get("result").get("qty").asText(), chatTitle, "Market", null);
+
                 if (shouldConfigurePartialTakeProfits(request)) {
                     configurePartialTakeProfits(symbol, request);
                 } else {
                     log.info("Pominięto konfigurację partial take-profits - nie są wymagane");
                 }
                 log.info("Zakończono otwieranie pozycji z sukcesem");
-                
+
                 // Wysyłanie powiadomienia SMS
                 sendSms(request, symbol, openResult);
 
@@ -149,14 +153,33 @@ public class BybitIntegrationService {
         }
     }
 
+    private void saveTradeHistory(String symbol, AdvancedMarketPositionRequest request, String quantity, String chatTitle, String orderType, String entryPrice) {
+        TradeHistory tradeHistory = TradeHistory.builder()
+                .symbol(symbol)
+                .side(request.getSide())
+                .quantity(quantity)
+                .entryPrice(entryPrice)
+                .stopLoss(request.getStopLoss())
+                .takeProfit(request.getTakeProfit())
+                .leverage(request.getLeverage())
+                .chatTitle(chatTitle)
+                .createdAt(LocalDateTime.now())
+                .orderType(orderType)
+                .usdtAmount(request.getUsdtAmount() != null ? request.getUsdtAmount().toString() : null)
+                .build();
+
+        tradeHistoryRepository.save(tradeHistory);
+        log.info("Zapisano historię zlecenia: {}", tradeHistory);
+    }
+
     private void sendSms(AdvancedMarketPositionRequest request, String symbol, JsonNode openResult) {
         twilioNotificationService.sendPositionOpenedNotification(
                 symbol,
-            request.getSide(),
-            openResult.has("result") && openResult.get("result").has("qty")
-                ? openResult.get("result").get("qty").asText()
-                : "nieznana",
-            request.getLeverage()
+                request.getSide(),
+                openResult.has("result") && openResult.get("result").has("qty")
+                        ? openResult.get("result").get("qty").asText()
+                        : "nieznana",
+                request.getLeverage()
         );
     }
 
@@ -222,7 +245,7 @@ public class BybitIntegrationService {
         // Określenie typu zlecenia
         String orderType = request.isLimit() ? "Limit" : "Market";
         String orderPrice = request.isLimit() ? request.getEntryPrice() : null;
-        
+
         // Otwarcie pozycji
         log.info("Parametry zlecenia - symbol: {}, side: {}, typ: {}, cena: {}, qty: {}, takeProfit: {}, stopLoss: {}, obecna dźwignia: x{}",
                 symbol, request.getSide(), orderType, orderPrice, quantityInCrypto, request.getTakeProfit(), request.getStopLoss(), CURRENT_LEVERAGE);
@@ -233,7 +256,7 @@ public class BybitIntegrationService {
             // Dla zleceń limit używamy ceny limitu
             valueToDeduct = quantityInCrypto.multiply(new BigDecimal(request.getEntryPrice()))
                     .divide(new BigDecimal(CURRENT_LEVERAGE), 8, RoundingMode.HALF_UP);
-            log.info("Jeśli zlecenie LIMIT zostanie w pełni zrealizowane, z konta zostanie pobrane około {} USDT (cena limit: {}, ilość: {})", 
+            log.info("Jeśli zlecenie LIMIT zostanie w pełni zrealizowane, z konta zostanie pobrane około {} USDT (cena limit: {}, ilość: {})",
                     valueToDeduct, request.getEntryPrice(), quantityInCrypto);
         } else {
             // Dla zleceń market używamy aktualnej ceny rynkowej
@@ -419,7 +442,7 @@ public class BybitIntegrationService {
                 }
             }
         } catch (Exception e) {
-            log.warn("Błąd podczas pobierania ilości kontraktów dla symbolu: {}, błąd: {}", 
+            log.warn("Błąd podczas pobierania ilości kontraktów dla symbolu: {}, błąd: {}",
                     symbol, e.getMessage());
             return 0; // Zwracamy 0 zamiast rzucać wyjątek
         }
@@ -542,9 +565,9 @@ public class BybitIntegrationService {
         log.info("Trailing stop value: {}", trailingStopValue);
 
         bybitApiClient.setTrailingStop("linear", symbol, trailingStopValue);
-        
+
         log.info("Zakończono otwieranie pozycji scalp z sukcesem");
-        
+
         // Wysyłanie powiadomienia SMS
         sendScalpSms(request, symbol, quantity);
 
@@ -560,9 +583,9 @@ public class BybitIntegrationService {
     private void sendScalpSms(ScalpRequestDto request, String symbol, double quantity) {
         twilioNotificationService.sendPositionOpenedNotification(
                 symbol,
-            "Sell",
-            String.valueOf(quantity),
-            request.getLeverage()
+                "Sell",
+                String.valueOf(quantity),
+                request.getLeverage()
         );
     }
 
