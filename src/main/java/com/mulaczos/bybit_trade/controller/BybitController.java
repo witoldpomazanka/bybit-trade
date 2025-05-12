@@ -41,14 +41,14 @@ public class BybitController {
     public ResponseEntity<JsonNode> openAdvancedPosition(
             @RequestBody Map<String, Object> payload,
             @RequestHeader(value = "chat-title", required = false) String chatTitle) {
+        if (chatTitle != null) {
+            log.info("Chat title: {}", chatTitle);
+        }
         if (payload.containsKey("content")) {
             return ResponseEntity.ok(JsonNodeFactory.instance.objectNode().set("content", TextNode.valueOf("invalid")));
         }
         JsonNode result = bybitIntegrationService.openAdvancedPosition(payload, chatTitle);
         log.info("------------------------------------------------------------------------------------------------------------------------");
-        if (chatTitle != null) {
-            log.info("Chat title: {}", chatTitle);
-        }
         return ResponseEntity.ok(result);
     }
 
