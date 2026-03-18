@@ -22,7 +22,7 @@ import java.util.Map;
 public class LimitOrderTracker {
     
     private final LimitOrderService limitOrderService;
-    private final BybitApiClient bybitApiClient;
+    private final BlofinApiClient bybitApiClient;
     private final BybitIntegrationService bybitIntegrationService;
     private final TwilioNotificationService twilioNotificationService;
     
@@ -57,23 +57,31 @@ public class LimitOrderTracker {
         JsonNode positions = bybitApiClient.getPositions("linear", "USDT", true);
         boolean positionFound = false;
         
-        if (positions.has("result") && positions.get("result").has("list")) {
-            JsonNode positionsList = positions.get("result").get("list");
+        // BloFin: { "code": "0", "data": [ { "instId": "BTC-USDT", "positions": "1" } ] }
+        if (positions.has("data") && positions.get("data").isArray()) {
+            JsonNode positionsList = positions.get("data");
             for (JsonNode position : positionsList) {
-                if (position.has("symbol") && order.getSymbol().equals(position.get("symbol").asText()) &&
-                        position.has("size") && position.get("size").asDouble() > 0) {
-                    
+                String posInstId = position.has("instId") ? position.get("instId").asText() : "";
+                // Konwertuj symbol BTCUSDT → BTC-USDT do porównania
+                String expectedInstId = order.getSymbol().endsWith("USDT")
+                        ? order.getSymbol().replace("USDT", "-USDT") : order.getSymbol();
+                double posSize = position.has("positions")
+                        ? Math.abs(position.get("positions").asDouble()) : 0;
+
+                if ((posInstId.equals(expectedInstId) || posInstId.replace("-", "").equals(order.getSymbol()))
+                        && posSize > 0) {
+
                     // Znaleziono pozycję - zlecenie zostało zrealizowane
                     positionFound = true;
                     log.info("Znaleziono otwartą pozycję dla zlecenia limit: {}", order.getOrderId());
-                    
+
                     // Zaktualizuj status zlecenia
                     order.setStatus("FILLED");
                     order.setFilledAt(LocalDateTime.now());
-                    
+
                     // Skonfiguruj partial take-profits
                     configurePartialTakeProfits(order, position);
-                    
+
                     // Wyślij powiadomienie SMS
                     twilioNotificationService.sendPositionOpenedNotification(
                             order.getSymbol(),
@@ -105,8 +113,9 @@ public class LimitOrderTracker {
                 return;
             }
             
-            // Pobranie wielkości pozycji
-            double positionSize = position.get("size").asDouble();
+            // Pobranie wielkości pozycji - BloFin zwraca "positions" (ujemne dla short)
+            double positionSize = position.has("positions")
+                    ? Math.abs(position.get("positions").asDouble()) : 0;
             log.info("Wielkość pozycji do konfiguracji TP: {}", positionSize);
             
             // Pobranie minimalnego limitu dla zamówienia

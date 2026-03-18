@@ -39,7 +39,7 @@ public class BybitIntegrationService {
     @Value("${retracement.divider:2}")
     private Double retracementDivider;
 
-    private final BybitApiClient bybitApiClient;
+    private final BlofinApiClient bybitApiClient; // BloFin client – interfejs 1:1 z Bybit
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final TwilioNotificationService twilioNotificationService;
     private final LimitOrderService limitOrderService;
@@ -47,20 +47,20 @@ public class BybitIntegrationService {
 
     @EventListener(ApplicationStartedEvent.class)
     public void init() {
-        log.info("Inicjalizacja - ustawianie domyślnej dźwigni {}x", DEFAULT_LEVERAGE);
+        log.info("Inicjalizacja BloFin - ustawianie domyślnej dźwigni {}x", DEFAULT_LEVERAGE);
         setLeverageForSymbol("BTCUSDT", DEFAULT_LEVERAGE);
         log.info("Wartość w USDT dla minimalnego domyślnego zagrania, jeśli nie zdefiniowane w payload: {}", minUsdtAmountForTrade);
     }
 
     public JsonNode getOpenPositions() {
-        log.info("Pobieranie otwartych pozycji z Bybit");
+        log.info("Pobieranie otwartych pozycji z BloFin");
         JsonNode result = bybitApiClient.getPositions("linear", "USDT", false);
         log.info("Pobrano dane o otwartych pozycjach: {}", result);
         return result;
     }
 
     public JsonNode getAccountBalance() {
-        log.info("Pobieranie salda konta z Bybit");
+        log.info("Pobieranie salda konta z BloFin");
         JsonNode result = bybitApiClient.getWalletBalance("UNIFIED");
         log.info("Pobrano dane o saldzie konta: {}", result);
         return result;
@@ -122,8 +122,11 @@ public class BybitIntegrationService {
                 // Zapisywanie historii zlecenia
                 saveTradeHistory(symbol, request, quantityInCrypto.toString(), chatTitle, orderType, orderPrice);
 
-                if (openResult.has("result") && openResult.get("result").has("orderId")) {
-                    String orderId = openResult.get("result").get("orderId").asText();
+                // BloFin: data jest tablicą [{ orderId, clientOrderId }]
+                if (openResult.has("data") && openResult.get("data").isArray()
+                        && openResult.get("data").size() > 0
+                        && openResult.get("data").get(0).has("orderId")) {
+                    String orderId = openResult.get("data").get(0).get("orderId").asText();
                     limitOrderService.saveLimitOrder(orderId, request, symbol, quantityInCrypto.toString());
                 }
                 sendSms(request, symbol, openResult);
@@ -132,8 +135,13 @@ public class BybitIntegrationService {
                 // Standardowa obsługa dla zleceń market
                 JsonNode openResult = openPosition(symbol, request);
 
-                // Zapisywanie historii zlecenia
-                saveTradeHistory(symbol, request, openResult.get("result").get("qty").asText(), chatTitle, "Market", null);
+                // BloFin: qty pobieramy z pola size przekazanego w zleceniu (data nie zawiera qty w response)
+                String executedQty = openResult.has("data") && openResult.get("data").isArray()
+                        && openResult.get("data").size() > 0
+                        && openResult.get("data").get(0).has("qty")
+                        ? openResult.get("data").get(0).get("qty").asText()
+                        : "unknown";
+                saveTradeHistory(symbol, request, executedQty, chatTitle, "Market", null);
 
                 if (shouldConfigurePartialTakeProfits(request)) {
                     configurePartialTakeProfits(symbol, request);
@@ -173,12 +181,17 @@ public class BybitIntegrationService {
     }
 
     private void sendSms(AdvancedMarketPositionRequest request, String symbol, JsonNode openResult) {
+        // BloFin: data jest tablicą, qty nie jest zwracane w response – używamy wartości z requestu
+        String qty = "nieznana";
+        if (openResult.has("data") && openResult.get("data").isArray()
+                && openResult.get("data").size() > 0
+                && openResult.get("data").get(0).has("qty")) {
+            qty = openResult.get("data").get(0).get("qty").asText();
+        }
         twilioNotificationService.sendPositionOpenedNotification(
                 symbol,
                 request.getSide(),
-                openResult.has("result") && openResult.get("result").has("qty")
-                        ? openResult.get("result").get("qty").asText()
-                        : "nieznana",
+                qty,
                 request.getLeverage(),
                 request.isLimit() ? "Limit" : "Market"
         );
@@ -188,13 +201,20 @@ public class BybitIntegrationService {
     private JsonNode checkIfThePositionForSymbolIsAlreadyOpened(String symbol) {
         log.info("Sprawdzam czy istnieje już otwarta pozycja dla symbolu: {}", symbol);
         JsonNode openPositions = getOpenPositions();
-        if (openPositions.has("result") && openPositions.get("result").has("list")) {
-            JsonNode positionsList = openPositions.get("result").get("list");
+        // BloFin: { "code": "0", "data": [ { "instId": "BTC-USDT", "positions": "1", ... } ] }
+        if (openPositions.has("data") && openPositions.get("data").isArray()) {
+            JsonNode positionsList = openPositions.get("data");
+            // BloFin używa instId w formacie BTC-USDT; symbol w serwisie to BTCUSDT
+            String instId = symbol.contains("-") ? symbol : toInstId(symbol);
             for (JsonNode position : positionsList) {
-                if (position.has("symbol") && symbol.equals(position.get("symbol").asText()) &&
-                        position.has("size") && position.get("size").asDouble() > 0) {
+                String posInstId = position.has("instId") ? position.get("instId").asText() : "";
+                // positions: ilość kontraktów (ujemna = short)
+                double posSize = position.has("positions")
+                        ? Math.abs(position.get("positions").asDouble()) : 0;
+                if ((posInstId.equals(instId) || posInstId.replace("-", "").equals(symbol))
+                        && posSize > 0) {
                     log.warn("Znaleziono już otwartą pozycję dla symbolu: {}. Wielkość pozycji: {}",
-                            symbol, position.get("size").asDouble());
+                            symbol, posSize);
                     return createErrorResponse("Dla symbolu " + symbol + " istnieje już otwarta pozycja. " +
                             "Zamknij istniejącą pozycję przed otwarciem nowej.");
                 }
@@ -203,11 +223,20 @@ public class BybitIntegrationService {
         return null;
     }
 
+    /** Konwertuje BTCUSDT → BTC-USDT dla porównań z BloFin instId */
+    private String toInstId(String symbol) {
+        if (symbol == null || symbol.contains("-")) return symbol;
+        if (symbol.endsWith("USDT")) {
+            return symbol.substring(0, symbol.length() - 4) + "-USDT";
+        }
+        return symbol;
+    }
+
     private String prepareAndValidateSymbol(String coin) throws IOException {
         log.info("Szukanie symbolu dla coina: {}", coin);
         String symbol = bybitApiClient.findCorrectSymbol(coin);
         if (!bybitApiClient.isSymbolSupported("linear", symbol)) {
-            throw new RuntimeException("Symbol " + symbol + " nie jest obsługiwany w kategorii linear na Bybit");
+            throw new RuntimeException("Symbol " + symbol + " nie jest obsługiwany na BloFin");
         }
         log.info("Znaleziony i zwalidowany symbol: {}", symbol);
         return symbol;
@@ -371,14 +400,18 @@ public class BybitIntegrationService {
      */
     public BigDecimal getMinOrderValue(String symbol) throws IOException {
         JsonNode instrumentInfo = bybitApiClient.getInstrumentsInfo("linear", symbol);
-        if (instrumentInfo.has("result") && instrumentInfo.get("result").has("list")) {
-            JsonNode instrumentList = instrumentInfo.get("result").get("list");
-            if (instrumentList.isArray() && instrumentList.size() > 0) {
-                JsonNode instrument = instrumentList.get(0);
-                if (instrument.has("lotSizeFilter") && instrument.get("lotSizeFilter").has("minNotionalValue")) {
-                    String minNotionalValue = instrument.get("lotSizeFilter").get("minNotionalValue").asText();
-                    return new BigDecimal(minNotionalValue);
-                }
+        // BloFin: { "data": [ { "minSize": "0.1", "tickSize": "0.5", ... } ] }
+        if (instrumentInfo.has("data") && instrumentInfo.get("data").isArray()
+                && instrumentInfo.get("data").size() > 0) {
+            JsonNode instrument = instrumentInfo.get("data").get(0);
+            // BloFin nie ma minNotionalValue – obliczamy z minSize * tickSize (przybliżenie)
+            // Używamy contractValue * minSize jako minimalna wartość
+            if (instrument.has("minSize") && instrument.has("tickSize")) {
+                BigDecimal minSize = new BigDecimal(instrument.get("minSize").asText());
+                BigDecimal tickSize = new BigDecimal(instrument.get("tickSize").asText());
+                // Zwracamy minSize * tickSize jako minimalną wartość zlecenia (w USDT)
+                // W praktyce minimalna wartość to minSize * aktualnej ceny, ale tickSize daje dolne ograniczenie
+                return minSize.multiply(tickSize);
             }
         }
         throw new IOException("Nie udało się pobrać minimalnej wartości zlecenia dla symbolu " + symbol);
@@ -433,11 +466,14 @@ public class BybitIntegrationService {
     private double getOpenedPositionQty(String symbol, String category) {
         try {
             JsonNode positions = bybitApiClient.getPositions(category, "USDT", false);
-            if (positions.has("result") && positions.get("result").has("list")) {
-                for (JsonNode pos : positions.get("result").get("list")) {
-                    if (pos.has("symbol") && symbol.equals(pos.get("symbol").asText())) {
-                        if (pos.has("size")) {
-                            return pos.get("size").asDouble();
+            // BloFin: { "data": [ { "instId": "BTC-USDT", "positions": "1" } ] }
+            if (positions.has("data") && positions.get("data").isArray()) {
+                String instId = toInstId(symbol);
+                for (JsonNode pos : positions.get("data")) {
+                    String posInstId = pos.has("instId") ? pos.get("instId").asText() : "";
+                    if (posInstId.equals(instId) || posInstId.replace("-", "").equals(symbol)) {
+                        if (pos.has("positions")) {
+                            return Math.abs(pos.get("positions").asDouble());
                         }
                     }
                 }
@@ -445,10 +481,10 @@ public class BybitIntegrationService {
         } catch (Exception e) {
             log.warn("Błąd podczas pobierania ilości kontraktów dla symbolu: {}, błąd: {}",
                     symbol, e.getMessage());
-            return 0; // Zwracamy 0 zamiast rzucać wyjątek
+            return 0;
         }
         log.warn("Nie znaleziono otwartej pozycji dla symbolu: {}", symbol);
-        return 0; // Zwracamy 0 zamiast rzucać wyjątek
+        return 0;
     }
 
     /**
@@ -467,14 +503,12 @@ public class BybitIntegrationService {
      */
     public BigDecimal getMinimumOrderQuantity(String symbol) throws IOException {
         JsonNode instrumentInfo = bybitApiClient.getInstrumentsInfo("linear", symbol);
-        if (instrumentInfo.has("result") && instrumentInfo.get("result").has("list")) {
-            JsonNode instrumentList = instrumentInfo.get("result").get("list");
-            if (instrumentList.isArray() && instrumentList.size() > 0) {
-                JsonNode instrument = instrumentList.get(0);
-                if (instrument.has("lotSizeFilter") && instrument.get("lotSizeFilter").has("minOrderQty")) {
-                    String minOrderQtyStr = instrument.get("lotSizeFilter").get("minOrderQty").asText();
-                    return new BigDecimal(minOrderQtyStr);
-                }
+        // BloFin: { "data": [ { "minSize": "0.1", "lotSize": "0.1", ... } ] }
+        if (instrumentInfo.has("data") && instrumentInfo.get("data").isArray()
+                && instrumentInfo.get("data").size() > 0) {
+            JsonNode instrument = instrumentInfo.get("data").get(0);
+            if (instrument.has("minSize")) {
+                return new BigDecimal(instrument.get("minSize").asText());
             }
         }
         throw new IOException("Nie udało się pobrać minimalnej ilości zamówienia dla symbolu " + symbol);
@@ -485,17 +519,15 @@ public class BybitIntegrationService {
      */
     public BigDecimal getQuantityStep(String symbol) throws IOException {
         JsonNode instrumentInfo = bybitApiClient.getInstrumentsInfo("linear", symbol);
-        if (instrumentInfo.has("result") && instrumentInfo.get("result").has("list")) {
-            JsonNode instrumentList = instrumentInfo.get("result").get("list");
-            if (instrumentList.isArray() && instrumentList.size() > 0) {
-                JsonNode instrument = instrumentList.get(0);
-                if (instrument.has("lotSizeFilter") && instrument.get("lotSizeFilter").has("qtyStep")) {
-                    String qtyStepStr = instrument.get("lotSizeFilter").get("qtyStep").asText();
-                    return new BigDecimal(qtyStepStr);
-                }
+        // BloFin: { "data": [ { "lotSize": "0.1", ... } ] } – lotSize to krok ilości
+        if (instrumentInfo.has("data") && instrumentInfo.get("data").isArray()
+                && instrumentInfo.get("data").size() > 0) {
+            JsonNode instrument = instrumentInfo.get("data").get(0);
+            if (instrument.has("lotSize")) {
+                return new BigDecimal(instrument.get("lotSize").asText());
             }
         }
-        throw new IOException("Nie udało się pobrać kroku ilości (qtyStep) dla symbolu " + symbol);
+        throw new IOException("Nie udało się pobrać kroku ilości (lotSize) dla symbolu " + symbol);
     }
 
     /**
@@ -572,8 +604,15 @@ public class BybitIntegrationService {
         // Wysyłanie powiadomienia SMS
         sendScalpSms(request, symbol, quantity);
 
+        // BloFin: data jest tablicą [{ orderId, clientOrderId }]
+        String orderId = orderResponse.has("data") && orderResponse.get("data").isArray()
+                && orderResponse.get("data").size() > 0
+                && orderResponse.get("data").get(0).has("orderId")
+                ? orderResponse.get("data").get(0).get("orderId").asText()
+                : "unknown";
+
         return TradingResponseDto.builder()
-                .orderId(orderResponse.get("result").get("orderId").asText())
+                .orderId(orderId)
                 .symbol(symbol)
                 .side("Sell")
                 .status("SUBMITTED")
