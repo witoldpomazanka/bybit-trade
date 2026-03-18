@@ -1,11 +1,9 @@
-package com.mulaczos.bybit_trade.dto;
+package com.mulaczos.blofin_trade.dto;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
-
-import java.math.BigDecimal;
 
 @Data
 @Builder
@@ -16,4 +14,5 @@ public class ScalpRequestDto {
     private Integer leverage;
     private double usdtPrice;
     private double usdtAmount;
-} 
+}
+

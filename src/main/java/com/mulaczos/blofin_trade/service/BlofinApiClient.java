@@ -1,4 +1,4 @@
-package com.mulaczos.bybit_trade.service;
+package com.mulaczos.blofin_trade.service;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -20,9 +20,9 @@ import java.util.TreeMap;
 import java.util.UUID;
 
 /**
- * Klient REST API BloFin – 1:1 odpowiednik BybitApiClient.
+ * Klient REST API BloFin – 1:1 odpowiednik starego klienta giełdy.
  *
- * Główne różnice względem Bybit:
+ * Różnice:
  *  - Autentykacja: ACCESS-KEY / ACCESS-SIGN / ACCESS-TIMESTAMP / ACCESS-NONCE / ACCESS-PASSPHRASE
  *  - Podpis: HMAC-SHA256(prehash) → hex → Base64
  *    gdzie prehash = requestPath + method + timestamp + nonce + body
@@ -35,17 +35,15 @@ import java.util.UUID;
 @Slf4j
 public class BlofinApiClient {
 
-    // ── Public Market endpoints ───────────────────────────────────────────────
-    private static final String INSTRUMENTS_ENDPOINT     = "/api/v1/market/instruments";
-    private static final String TICKERS_ENDPOINT         = "/api/v1/market/tickers";
-    private static final String ORDER_BOOK_ENDPOINT      = "/api/v1/market/books";
+    private static final String INSTRUMENTS_ENDPOINT = "/api/v1/market/instruments";
+    private static final String TICKERS_ENDPOINT = "/api/v1/market/tickers";
+    private static final String ORDER_BOOK_ENDPOINT = "/api/v1/market/books";
 
-    // ── Account / Trading endpoints ───────────────────────────────────────────
-    private static final String POSITIONS_ENDPOINT       = "/api/v1/account/positions";
-    private static final String WALLET_BALANCE_ENDPOINT  = "/api/v1/account/balance";
-    private static final String SET_LEVERAGE_ENDPOINT    = "/api/v1/account/set-leverage";
-    private static final String PLACE_ORDER_ENDPOINT     = "/api/v1/trade/order";
-    private static final String TPSL_ORDER_ENDPOINT      = "/api/v1/trade/order-tpsl";
+    private static final String POSITIONS_ENDPOINT = "/api/v1/account/positions";
+    private static final String WALLET_BALANCE_ENDPOINT = "/api/v1/account/balance";
+    private static final String SET_LEVERAGE_ENDPOINT = "/api/v1/account/set-leverage";
+    private static final String PLACE_ORDER_ENDPOINT = "/api/v1/trade/order";
+    private static final String TPSL_ORDER_ENDPOINT = "/api/v1/trade/order-tpsl";
 
     private static final String HMAC_SHA256 = "HmacSHA256";
 
@@ -66,37 +64,16 @@ public class BlofinApiClient {
         this.objectMapper = new ObjectMapper();
     }
 
-    // ══════════════════════════════════════════════════════════════════════════
-    //  Metody publiczne – odpowiedniki metod BybitApiClient
-    // ══════════════════════════════════════════════════════════════════════════
-
-    /**
-     * Odpowiednik: getPositions(category, settleCoin, omitLogging)
-     * BloFin nie wymaga "category" ani "settleCoin" – listuje wszystkie pozycje futures.
-     * Opcjonalnie można podać instId do filtrowania.
-     */
     public JsonNode getPositions(String category, String settleCoin, boolean omitLoggingResponse) {
         TreeMap<String, String> params = new TreeMap<>();
-        // BloFin nie ma odpowiednika "settleCoin" / "category" na tym endpoincie.
-        // Zostawiamy brak filtrowania – zwróci wszystkie aktywne pozycje USDT-futures.
         return executeGetRequest(POSITIONS_ENDPOINT, params, omitLoggingResponse);
     }
 
-    /**
-     * Odpowiednik: getWalletBalance(accountType)
-     * BloFin: GET /api/v1/account/balance – zwraca saldo futures.
-     */
     public JsonNode getWalletBalance(String accountType) {
         TreeMap<String, String> params = new TreeMap<>();
-        // accountType ignorowany – BloFin ma jeden endpoint dla futures balance
         return executeGetRequest(WALLET_BALANCE_ENDPOINT, params, false);
     }
 
-    /**
-     * Odpowiednik: setLeverage(category, symbol, leverage)
-     * BloFin: POST /api/v1/account/set-leverage
-     * Wymaga: instId (BTC-USDT), leverage, marginMode, positionSide
-     */
     public JsonNode setLeverage(String category, String symbol, String leverage) {
         String instId = toInstId(symbol);
         TreeMap<String, String> params = new TreeMap<>();
@@ -109,18 +86,6 @@ public class BlofinApiClient {
         return executePostRequest(SET_LEVERAGE_ENDPOINT, params);
     }
 
-    /**
-     * Odpowiednik: openPosition(category, symbol, side, orderType, qty, price, takeProfit, stopLoss)
-     * BloFin: POST /api/v1/trade/order
-     *
-     * Mapowanie:
-     *  - symbol        → instId (BTC-USDT)
-     *  - side          → buy/sell (lowercase)
-     *  - orderType     → market/limit (lowercase)
-     *  - qty           → size (liczba kontraktów)
-     *  - takeProfit    → tpTriggerPrice
-     *  - stopLoss      → slTriggerPrice
-     */
     public JsonNode openPosition(String category, String symbol, String side, String orderType,
                                  String qty, String price, String takeProfit, String stopLoss) {
         String instId = toInstId(symbol);
@@ -139,12 +104,12 @@ public class BlofinApiClient {
 
         if (takeProfit != null && !takeProfit.isEmpty()) {
             params.put("tpTriggerPrice", takeProfit);
-            params.put("tpOrderPrice", "-1"); // -1 = market TP
+            params.put("tpOrderPrice", "-1");
         }
 
         if (stopLoss != null && !stopLoss.isEmpty()) {
             params.put("slTriggerPrice", stopLoss);
-            params.put("slOrderPrice", "-1"); // -1 = market SL
+            params.put("slOrderPrice", "-1");
         }
 
         log.info("Otwieranie pozycji: instId={}, strona={}, typ={}, ilość={}",
@@ -152,16 +117,11 @@ public class BlofinApiClient {
         return executePostRequest(PLACE_ORDER_ENDPOINT, params);
     }
 
-    /**
-     * Odpowiednik: getMarketPrice(category, symbol)
-     * BloFin: używa order book lub tickers do pobrania aktualnej ceny.
-     */
     public double getMarketPrice(String category, String symbol) {
         String instId = toInstId(symbol);
         TreeMap<String, String> params = new TreeMap<>();
         params.put("instId", instId);
 
-        // Próbujemy order book (ask+bid / 2)
         JsonNode bookResult = executeGetRequest(ORDER_BOOK_ENDPOINT, params, true);
         if (bookResult.has("data") && bookResult.get("data").isArray()
                 && bookResult.get("data").size() > 0) {
@@ -177,7 +137,6 @@ public class BlofinApiClient {
             }
         }
 
-        // Fallback: tickers → "last"
         JsonNode tickersResult = executeGetRequest(TICKERS_ENDPOINT, params, false);
         if (tickersResult.has("data") && tickersResult.get("data").isArray()
                 && tickersResult.get("data").size() > 0) {
@@ -190,10 +149,6 @@ public class BlofinApiClient {
         throw new RuntimeException("Problem z pobraniem ceny rynkowej dla: " + instId);
     }
 
-    /**
-     * Odpowiednik: getInstrumentsInfo(category, symbol)
-     * BloFin: GET /api/v1/market/instruments?instId=BTC-USDT
-     */
     public JsonNode getInstrumentsInfo(String category, String symbol) {
         String instId = toInstId(symbol);
         TreeMap<String, String> params = new TreeMap<>();
@@ -205,12 +160,6 @@ public class BlofinApiClient {
         return executeGetRequest(INSTRUMENTS_ENDPOINT, params, true);
     }
 
-    /**
-     * Odpowiednik: findCorrectSymbol(coin)
-     * BloFin: szuka instrumentu pasującego do {COIN}-USDT.
-     * Zwraca symbol w formacie Bybit-kompatybilnym (BTCUSDT) dla zachowania
-     * kompatybilności z BybitIntegrationService – konwersja następuje wewnątrz klienta.
-     */
     public String findCorrectSymbol(String coin) {
         String targetInstId = coin.toUpperCase() + "-USDT";
         TreeMap<String, String> params = new TreeMap<>();
@@ -219,16 +168,13 @@ public class BlofinApiClient {
         if (instrumentsInfo.has("data") && instrumentsInfo.get("data").isArray()) {
             JsonNode list = instrumentsInfo.get("data");
 
-            // Dokładne dopasowanie
             for (JsonNode instrument : list) {
                 if (instrument.has("instId")
                         && targetInstId.equals(instrument.get("instId").asText())) {
-                    // Zwracamy w formacie "BTCUSDT" (bez myślnika) – kompatybilny z serwisem
                     return instrument.get("instId").asText().replace("-", "");
                 }
             }
 
-            // Częściowe dopasowanie – zawiera coin i kończy się na USDT
             String coinUpper = coin.toUpperCase();
             for (JsonNode instrument : list) {
                 if (instrument.has("instId")) {
@@ -243,9 +189,6 @@ public class BlofinApiClient {
         throw new RuntimeException("Nie znaleziono symbolu dla: %s".formatted(coin));
     }
 
-    /**
-     * Odpowiednik: isSymbolSupported(category, symbol)
-     */
     public boolean isSymbolSupported(String category, String symbol) {
         try {
             String instId = toInstId(symbol);
@@ -263,36 +206,21 @@ public class BlofinApiClient {
         }
     }
 
-    /**
-     * Odpowiednik: setTradingStop(params)
-     * BloFin: POST /api/v1/trade/order-tpsl
-     *
-     * Mapuje pola z formatu Bybit (tpslMode, tpSize, takeProfit, stopLoss, positionIdx)
-     * na format BloFin (tpTriggerPrice, slTriggerPrice, size, positionSide).
-     */
     public JsonNode setTradingStop(Map<String, Object> params) {
         TreeMap<String, String> blofinParams = new TreeMap<>();
 
-        // symbol – konwertuj do instId
         if (params.containsKey("symbol")) {
             blofinParams.put("instId", toInstId(params.get("symbol").toString()));
         }
 
         blofinParams.put("marginMode", "cross");
         blofinParams.put("positionSide", "net");
+        blofinParams.put("side", "buy");
 
-        // Strona redukcji: zależy od kierunku oryginalnej pozycji,
-        // ale ponieważ używamy net mode – ustawiamy buy/sell zależnie od takeProfit/stopLoss
-        // W net mode: TP/SL ustawiamy bez "side" – BloFin sam rozpoznaje.
-        // Używamy side=buy jeśli reduce (closePosition) – wymagane przez API
-        blofinParams.put("side", "buy"); // placeholder – zostanie nadpisany przez TP/SL trigger
-
-        // Rozmiar – z tpSize lub pozostała ilość
         if (params.containsKey("tpSize")) {
             blofinParams.put("size", params.get("tpSize").toString());
         }
 
-        // Take profit
         if (params.containsKey("takeProfit")) {
             String tp = params.get("takeProfit").toString();
             if (!tp.isEmpty()) {
@@ -301,7 +229,6 @@ public class BlofinApiClient {
             }
         }
 
-        // Stop loss
         if (params.containsKey("stopLoss")) {
             String sl = params.get("stopLoss").toString();
             if (!sl.isEmpty()) {
@@ -316,15 +243,9 @@ public class BlofinApiClient {
         return executePostRequest(TPSL_ORDER_ENDPOINT, blofinParams);
     }
 
-    /**
-     * Odpowiednik: setTrailingStop(category, symbol, trailingStop)
-     * BloFin nie posiada natywnego trailing stop w standardowym REST API.
-     * Implementacja jako TPSL order z dynamicznym SL – logujemy ostrzeżenie.
-     */
     public JsonNode setTrailingStop(String category, String symbol, String trailingStop) {
         log.warn("BloFin nie obsługuje trailing stop przez REST API v1. " +
                 "Trailing stop (wartość: {}) dla {} zostanie pominięty.", trailingStop, symbol);
-        // Zwracamy pusty sukces żeby nie blokować flow
         try {
             return objectMapper.readTree("{\"code\":\"0\",\"msg\":\"trailing_stop_not_supported\",\"data\":{}}");
         } catch (Exception e) {
@@ -332,17 +253,9 @@ public class BlofinApiClient {
         }
     }
 
-    // ══════════════════════════════════════════════════════════════════════════
-    //  Metody pomocnicze
-    // ══════════════════════════════════════════════════════════════════════════
-
-    /**
-     * Konwertuje symbol z formatu Bybit (BTCUSDT) na format BloFin (BTC-USDT).
-     */
     private String toInstId(String symbol) {
         if (symbol == null) return "";
-        if (symbol.contains("-")) return symbol; // już w formacie BloFin
-        // Heurystyka: zakładamy USDT linear futures
+        if (symbol.contains("-")) return symbol;
         if (symbol.endsWith("USDT")) {
             String base = symbol.substring(0, symbol.length() - 4);
             return base + "-USDT";
@@ -350,21 +263,15 @@ public class BlofinApiClient {
         return symbol;
     }
 
-    /**
-     * Mapuje typ zlecenia z formatu Bybit na format BloFin.
-     */
-    private String mapOrderType(String bybitOrderType) {
-        if (bybitOrderType == null) return "market";
-        return switch (bybitOrderType.toLowerCase()) {
-            case "limit"   -> "limit";
+    private String mapOrderType(String orderType) {
+        if (orderType == null) return "market";
+        return switch (orderType.toLowerCase()) {
+            case "limit" -> "limit";
             case "postonly" -> "post_only";
-            default        -> "market";
+            default -> "market";
         };
     }
 
-    /**
-     * Buduje query string z parametrów (dla GET requestów).
-     */
     private String buildQueryString(TreeMap<String, String> params) {
         StringBuilder queryString = new StringBuilder();
         params.forEach((key, value) -> {
@@ -376,11 +283,6 @@ public class BlofinApiClient {
         return queryString.toString();
     }
 
-    /**
-     * Generuje podpis BloFin:
-     * prehash = requestPathWithQuery + METHOD + timestamp + nonce + body
-     * signature = Base64( HmacSHA256(prehash, secretKey).hexDigest() )
-     */
     private String generateSignature(String requestPath, String method,
                                      long timestamp, String nonce, String body) {
         String prehash = requestPath + method + timestamp + nonce + body;
@@ -397,9 +299,6 @@ public class BlofinApiClient {
         }
     }
 
-    /**
-     * Waliduje odpowiedź BloFin. Sukces gdy code == "0".
-     */
     private void validateApiResponse(JsonNode response) {
         if (response.has("code")) {
             String code = response.get("code").asText();
@@ -411,9 +310,6 @@ public class BlofinApiClient {
         }
     }
 
-    /**
-     * Wykonuje GET request z autentykacją BloFin.
-     */
     private JsonNode executeGetRequest(String endpoint, TreeMap<String, String> params,
                                        boolean omitLoggingResponse) {
         long timestamp = Instant.now().toEpochMilli();
@@ -455,9 +351,6 @@ public class BlofinApiClient {
         }
     }
 
-    /**
-     * Wykonuje POST request z autentykacją BloFin.
-     */
     private JsonNode executePostRequest(String endpoint, TreeMap<String, String> params) {
         long timestamp = Instant.now().toEpochMilli();
         String nonce = UUID.randomUUID().toString();
@@ -481,7 +374,6 @@ public class BlofinApiClient {
                 .addHeader("ACCESS-PASSPHRASE", passphrase)
                 .build();
 
-        log.debug("Wysyłanie POST request do: {}", endpoint);
         try (Response response = httpClient.newCall(request).execute()) {
             if (!response.isSuccessful()) {
                 throw new IOException("Niepowodzenie zapytania: " + response.code() + " " + response.message());
@@ -507,3 +399,4 @@ public class BlofinApiClient {
         }
     }
 }
+

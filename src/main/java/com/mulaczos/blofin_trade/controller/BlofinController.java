@@ -1,11 +1,11 @@
-package com.mulaczos.bybit_trade.controller;
+package com.mulaczos.blofin_trade.controller;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.TextNode;
-import com.mulaczos.bybit_trade.dto.ScalpRequestDto;
-import com.mulaczos.bybit_trade.dto.TradingResponseDto;
-import com.mulaczos.bybit_trade.service.BybitIntegrationService;
+import com.mulaczos.blofin_trade.dto.ScalpRequestDto;
+import com.mulaczos.blofin_trade.dto.TradingResponseDto;
+import com.mulaczos.blofin_trade.service.BlofinIntegrationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
@@ -17,14 +17,14 @@ import java.util.Map;
 @RestController
 @RequiredArgsConstructor
 @RequestMapping("/api/bybit")
-public class BybitController {
+public class BlofinController {
 
-    private final BybitIntegrationService bybitIntegrationService;
+    private final BlofinIntegrationService blofinIntegrationService;
 
     @GetMapping("/positions/open")
     public ResponseEntity<JsonNode> getOpenPositions() {
         log.info("Otrzymano żądanie pobrania otwartych pozycji");
-        JsonNode result = bybitIntegrationService.getOpenPositions();
+        JsonNode result = blofinIntegrationService.getOpenPositions();
         log.info("Pobrano otwarte pozycje: {}", result);
         return ResponseEntity.ok(result);
     }
@@ -32,11 +32,11 @@ public class BybitController {
     @GetMapping("/account/balance")
     public ResponseEntity<JsonNode> getAccountBalance() {
         log.info("Otrzymano żądanie pobrania salda konta");
-        JsonNode result = bybitIntegrationService.getAccountBalance();
-        log.info("Pobrano saldo konta: {}", result);
+        JsonNode result = blofinIntegrationService.getAccountBalance();
+        log.info("Pobrano dane o saldzie konta: {}", result);
         return ResponseEntity.ok(result);
     }
-    
+
     @PostMapping("/positions/advanced")
     public ResponseEntity<JsonNode> openAdvancedPosition(
             @RequestBody Map<String, Object> payload,
@@ -47,13 +47,14 @@ public class BybitController {
         if (payload.containsKey("content")) {
             return ResponseEntity.ok(JsonNodeFactory.instance.objectNode().set("content", TextNode.valueOf("invalid")));
         }
-        JsonNode result = bybitIntegrationService.openAdvancedPosition(payload, chatTitle);
+        JsonNode result = blofinIntegrationService.openAdvancedPosition(payload, chatTitle);
         log.info("------------------------------------------------------------------------------------------------------------------------");
         return ResponseEntity.ok(result);
     }
 
     @PostMapping("/positions/scalp")
     public ResponseEntity<TradingResponseDto> openScalpPosition(@RequestBody ScalpRequestDto request) {
-        return ResponseEntity.ok(bybitIntegrationService.openScalpShortPosition(request));
+        return ResponseEntity.ok(blofinIntegrationService.openScalpShortPosition(request));
     }
-} 
+}
+

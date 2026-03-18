@@ -1,10 +1,10 @@
-package com.mulaczos.bybit_trade.service;
+package com.mulaczos.blofin_trade.service;
 
-import com.mulaczos.bybit_trade.dto.AdvancedMarketPositionRequest;
-import com.mulaczos.bybit_trade.model.LimitOrder;
-import com.mulaczos.bybit_trade.model.LimitOrderTakeProfit;
-import com.mulaczos.bybit_trade.repository.LimitOrderRepository;
-import com.mulaczos.bybit_trade.repository.LimitOrderTakeProfitRepository;
+import com.mulaczos.blofin_trade.dto.AdvancedMarketPositionRequest;
+import com.mulaczos.blofin_trade.model.LimitOrder;
+import com.mulaczos.blofin_trade.model.LimitOrderTakeProfit;
+import com.mulaczos.blofin_trade.repository.LimitOrderRepository;
+import com.mulaczos.blofin_trade.repository.LimitOrderTakeProfitRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -20,14 +20,14 @@ import java.util.Optional;
 @RequiredArgsConstructor
 @Slf4j
 public class LimitOrderService {
-    
+
     private final LimitOrderRepository limitOrderRepository;
     private final LimitOrderTakeProfitRepository takeProfitRepository;
-    
+
     @Transactional
     public LimitOrder saveLimitOrder(String orderId, AdvancedMarketPositionRequest request, String symbol, String quantity) {
         log.info("Zapisywanie zlecenia limit: orderId={}, symbol={}, side={}, quantity={}", orderId, symbol, request.getSide(), quantity);
-        
+
         LimitOrder order = LimitOrder.builder()
                 .orderId(orderId)
                 .symbol(symbol)
@@ -40,10 +40,9 @@ public class LimitOrderService {
                 .createdAt(LocalDateTime.now())
                 .lastCheckedAt(LocalDateTime.now())
                 .build();
-        
+
         LimitOrder savedOrder = limitOrderRepository.save(order);
-        
-        // Zapisywanie take-profits
+
         if (request.hasPartialTakeProfits()) {
             List<LimitOrderTakeProfit> takeProfits = new ArrayList<>();
             for (Map.Entry<Integer, String> entry : request.getPartialTakeProfits().entrySet()) {
@@ -53,43 +52,44 @@ public class LimitOrderService {
                         .price(entry.getValue())
                         .processed(false)
                         .build();
-                
+
                 takeProfits.add(tp);
             }
             takeProfitRepository.saveAll(takeProfits);
             log.info("Zapisano {} take-profitów dla zlecenia limit: {}", takeProfits.size(), orderId);
         }
-        
+
         return savedOrder;
     }
-    
+
     @Transactional(readOnly = true)
     public List<LimitOrder> getPendingOrders() {
         return limitOrderRepository.findByStatus("PENDING");
     }
-    
+
     @Transactional
     public void updateOrderStatus(String orderId, String status) {
         log.info("Aktualizacja statusu zlecenia orderId={} na: {}", orderId, status);
-        
+
         Optional<LimitOrder> orderOpt = limitOrderRepository.findByOrderId(orderId);
         if (orderOpt.isPresent()) {
             LimitOrder order = orderOpt.get();
             order.setStatus(status);
-            
+
             if ("FILLED".equals(status)) {
                 order.setFilledAt(LocalDateTime.now());
             }
-            
+
             order.setLastCheckedAt(LocalDateTime.now());
             limitOrderRepository.save(order);
         } else {
             log.warn("Nie znaleziono zlecenia o ID: {}", orderId);
         }
     }
-    
+
     @Transactional(readOnly = true)
     public List<LimitOrderTakeProfit> getUnprocessedTakeProfitsForOrder(Long orderId) {
         return takeProfitRepository.findByLimitOrderIdAndProcessed(orderId, false);
     }
-} 
+}
+

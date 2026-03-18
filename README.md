@@ -1,11 +1,11 @@
-# Bybit Trade
+# BloFin Trade
 
-Aplikacja do zarządzania handlem kryptowalutami na giełdzie Bybit.
+Aplikacja do zarządzania handlem kryptowalutami na giełdzie BloFin.
 
 ## Funkcje
 
 - Zarządzanie pozycjami tradingowymi (otwieranie, zamykanie)
-- Integracja z API Bybit V5 (pobieranie otwartych pozycji, sald konta)
+- Integracja z API BloFin (pobieranie otwartych pozycji, sald konta)
 - Śledzenie historii transakcji
 - Analiza wyników
 - Powiadomienia SMS po otwarciu pozycji (przez Twilio)
@@ -13,7 +13,7 @@ Aplikacja do zarządzania handlem kryptowalutami na giełdzie Bybit.
 ## Wymagania
 
 - Java 17
-- Konto na giełdzie Bybit (oraz klucze API)
+- Konto na giełdzie BloFin (oraz klucze API)
 - Konto Twilio (opcjonalnie, do powiadomień SMS)
 
 ## Konfiguracja
@@ -24,9 +24,9 @@ Aplikacja wymaga następujących zmiennych środowiskowych:
 
 ```
 # Wymagane
-BYBIT_API_KEY=twój_klucz_api
-BYBIT_API_SECRET=twój_sekret_api
-BYBIT_TESTNET=true   # true dla środowiska testowego, false dla produkcyjnego
+BLOFIN_API_KEY=twój_klucz_api
+BLOFIN_API_SECRET=twój_sekret_api
+BLOFIN_API_PASSPHRASE=twoje_hasło_api
 MIN_USDT_AMOUNT_FOR_TRADE=50.0   # minimalna kwota w USDT dla transakcji
 RETRACEMENT_DIVIDER=2   # dzielnik dla trailing stop w strategii scalp (domyślnie 2)
 
@@ -41,12 +41,12 @@ TWILIO_NOTIFICATIONS_ENABLED=true   # włączenie powiadomień SMS (domyślnie f
 # Budowanie obrazu Docker
 
    ```bash
-   docker build -t bybit-trade .
+   docker build -t blofin-trade .
    ```
 
 
    ```bash
-   docker rmi bybit-trade
+   docker rmi blofin-trade
    ```
 
 ## Korzystanie z API
@@ -87,18 +87,18 @@ curl -X POST http://localhost:8888/api/positions \
 curl -X POST http://localhost:8888/api/positions/1/close
 ```
 
-### Integracja z Bybit API
+### Integracja z BloFin API
 
-#### Pobieranie otwartych pozycji z Bybit
+#### Pobieranie otwartych pozycji z BloFin
 
 ```bash
-curl -X GET http://localhost:8888/api/bybit/positions/open
+curl -X GET http://localhost:8888/api/blofin/positions/open
 ```
 
-#### Pobieranie salda konta z Bybit
+#### Pobieranie salda konta z BloFin
 
 ```bash
-curl -X GET http://localhost:8888/api/bybit/account/balance
+curl -X GET http://localhost:8888/api/blofin/account/balance
 ```
 
 ## Kolekcja Postman

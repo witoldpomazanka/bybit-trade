@@ -1,4 +1,4 @@
-package com.mulaczos.bybit_trade.service;
+package com.mulaczos.blofin_trade.service;
 
 import com.twilio.Twilio;
 import com.twilio.rest.api.v2010.account.Message;
@@ -30,11 +30,11 @@ public class TwilioNotificationService {
     @PostConstruct
     public void init() {
         if (notificationsEnabled) {
-            if (accountSid == null || accountSid.isEmpty() || 
-                authToken == null || authToken.isEmpty() ||
-                twilioPhoneNumber == null || twilioPhoneNumber.isEmpty() ||
-                recipientPhoneNumber == null || recipientPhoneNumber.isEmpty()) {
-                
+            if (accountSid == null || accountSid.isEmpty() ||
+                    authToken == null || authToken.isEmpty() ||
+                    twilioPhoneNumber == null || twilioPhoneNumber.isEmpty() ||
+                    recipientPhoneNumber == null || recipientPhoneNumber.isEmpty()) {
+
                 log.warn("Powiadomienia SMS są włączone, ale brakuje niezbędnych danych Twilio. SMS-y nie będą wysyłane.");
                 notificationsEnabled = false;
             } else {
@@ -46,14 +46,6 @@ public class TwilioNotificationService {
         }
     }
 
-    /**
-     * Wysyła powiadomienie SMS o otwartej pozycji
-     * @param symbol Symbol instrumentu
-     * @param side Kierunek pozycji (Buy/Sell)
-     * @param quantity Ilość
-     * @param leverage Dźwignia
-     * @param orderType Typ zlecenia (Market/Limit)
-     */
     public void sendPositionOpenedNotification(String symbol, String side, String quantity, int leverage, String orderType) {
         if (!notificationsEnabled) {
             log.debug("Powiadomienia SMS są wyłączone. Pominięto wysyłanie SMS.");
@@ -62,18 +54,18 @@ public class TwilioNotificationService {
 
         try {
             String messageBody = String.format(
-                "BYBIT TRADE: Otwarto pozycję %s dla %s, ilość: %s, dźwignia: x%d, typ: %s",
-                side.equals("Buy") ? "LONG" : "SHORT",
-                symbol,
-                quantity,
-                leverage,
-                orderType
+                    "BLOFIN TRADE: Otwarto pozycję %s dla %s, ilość: %s, dźwignia: x%d, typ: %s",
+                    side.equals("Buy") ? "LONG" : "SHORT",
+                    symbol,
+                    quantity,
+                    leverage,
+                    orderType
             );
 
             Message message = Message.creator(
-                new PhoneNumber(recipientPhoneNumber),
-                new PhoneNumber(twilioPhoneNumber),
-                messageBody
+                    new PhoneNumber(recipientPhoneNumber),
+                    new PhoneNumber(twilioPhoneNumber),
+                    messageBody
             ).create();
 
             log.info("Wysłano powiadomienie SMS. SID: {}", message.getSid());
@@ -81,4 +73,5 @@ public class TwilioNotificationService {
             log.error("Błąd podczas wysyłania powiadomienia SMS: {}", e.getMessage(), e);
         }
     }
-} 
+}
+
