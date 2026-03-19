@@ -271,14 +271,16 @@ public class BlofinIntegrationService {
 
         BigDecimal valueToDeduct;
         if (request.isLimit()) {
-            valueToDeduct = quantityInCrypto.multiply(new BigDecimal(request.getEntryPrice()))
-                    .divide(new BigDecimal(CURRENT_LEVERAGE), 8, RoundingMode.HALF_UP);
-            log.info("Jeśli zlecenie LIMIT zostanie w pełni zrealizowane, z konta zostanie pobrane około {} USDT (cena limit: {}, ilość: {})",
-                    valueToDeduct, request.getEntryPrice(), quantityInCrypto);
+            valueToDeduct = quantityInCrypto.multiply(new BigDecimal(request.getEntryPrice())).divide(new BigDecimal(CURRENT_LEVERAGE), 8, RoundingMode.HALF_UP);
+            log.info("⚠️  Jeśli zlecenie LIMIT zostanie w pełni zrealizowane, z konta zostanie pobrane około {} USDT (cena limit: {}, ilość: {}, dźwignia: {}x)", valueToDeduct, request.getEntryPrice(), quantityInCrypto, CURRENT_LEVERAGE);
         } else {
-            valueToDeduct = quantityInCrypto.multiply(price)
-                    .divide(new BigDecimal(CURRENT_LEVERAGE), 8, RoundingMode.HALF_UP);
-            log.info("Z konta zostanie pobrane {} USDT", valueToDeduct);
+            valueToDeduct = quantityInCrypto.multiply(price).divide(new BigDecimal(CURRENT_LEVERAGE), 8, RoundingMode.HALF_UP);
+            log.info("⚠️  Z konta zostanie pobrane {} USDT (przy dźwigni {}x, ilość: {}, cena: {})", valueToDeduct, CURRENT_LEVERAGE, quantityInCrypto, price);
+        }
+
+        var requestedAmount = request.getUsdtAmount() != null ? request.getUsdtAmount() : BigDecimal.valueOf(minUsdtAmountForTrade);
+        if (valueToDeduct.compareTo(requestedAmount) > 0) {
+            log.warn("⚠️⚠️  UWAGA! Z konta będzie pobrane {} USDT, podczas gdy żądałeś {} USDT! Różnica: {} USDT", valueToDeduct, requestedAmount, valueToDeduct.subtract(requestedAmount));
         }
 
         return blofinApiClient.openPosition(
@@ -388,16 +390,27 @@ public class BlofinIntegrationService {
         BigDecimal quantity = positionValue.divide(price, 8, RoundingMode.HALF_UP);
         BigDecimal orderValue = quantity.multiply(price);
 
+        log.info("Obliczanie wielkości pozycji - positionValue: {}, price: {}, quantity: {}, orderValue: {}, minOrderValue: {}",
+                positionValue, price, quantity, orderValue, minOrderValue);
+
+        // Jeśli obliczona wartość zamówienia jest poniżej minimum, użyjemy wartości minimalnej
         if (orderValue.compareTo(minOrderValue) < 0) {
+            log.warn("Obliczona wartość zamówienia {} USDT jest poniżej minimum {} USDT. Będziemy używać minimalną wartość.",
+                    orderValue, minOrderValue);
             quantity = minOrderValue.divide(price, 8, RoundingMode.UP);
         }
 
         if (quantity.compareTo(minQtyFromApi) < 0) {
+            log.warn("Obliczona ilość {} jest poniżej minimum {} z API. Będziemy używać minimum z API.",
+                    quantity, minQtyFromApi);
             quantity = minQtyFromApi;
         }
 
         BigDecimal qtyStep = getQuantityStep(symbol);
         quantity = roundToValidQuantity(quantity, qtyStep);
+
+        BigDecimal finalOrderValue = quantity.multiply(price);
+        log.info("Finalna wielkość pozycji: {} (wartość: {} USDT)", quantity, finalOrderValue);
 
         return quantity;
     }
