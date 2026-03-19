@@ -46,18 +46,32 @@ public class TwilioNotificationService {
         }
     }
 
-    public void sendPositionOpenedNotification(String symbol, String side, String quantity, int leverage, String orderType) {
+    public void sendPositionOpenedNotification(String symbol, String side, String quantity, int leverage, String orderType, String entryPrice) {
         if (!notificationsEnabled) {
-            log.debug("Powiadomienia SMS są wyłączone. Pominięto wysyłanie SMS.");
+            log.info("Powiadomienia SMS są wyłączone. Pominięto wysyłanie SMS.");
             return;
         }
 
         try {
+            String coin = symbol.replace("-USDT", "").replace("USDT", "");
+            String sideFormatted = side.equalsIgnoreCase("Buy") ? "LONG" : "SHORT";
+            
+            String usdtValue = "nieznana";
+            if (entryPrice != null && quantity != null && !quantity.equals("unknown") && !quantity.equals("nieznana")) {
+                try {
+                    double price = Double.parseDouble(entryPrice);
+                    double qty = Double.parseDouble(quantity);
+                    usdtValue = String.format("%.2f", price * qty);
+                } catch (Exception e) {
+                    log.warn("Nie udało się obliczyć wartości USDT dla SMS: entryPrice={}, quantity={}", entryPrice, quantity);
+                }
+            }
+
             String messageBody = String.format(
-                    "BLOFIN TRADE: Otwarto pozycję %s dla %s, ilość: %s, dźwignia: x%d, typ: %s",
-                    side.equals("Buy") ? "LONG" : "SHORT",
-                    symbol,
-                    quantity,
+                    "Otwarto pozycję: %s %s | Wartość: %s USDT | Lewar: x%d | Typ: %s",
+                    sideFormatted,
+                    coin,
+                    usdtValue,
                     leverage,
                     orderType
             );
@@ -74,4 +88,3 @@ public class TwilioNotificationService {
         }
     }
 }
-

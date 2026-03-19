@@ -39,7 +39,7 @@ public class LimitOrderTracker {
             return;
         }
 
-        log.debug("Znaleziono {} oczekujących zleceń limit", pendingOrders.size());
+        log.info("Znaleziono {} oczekujących zleceń limit", pendingOrders.size());
 
         for (LimitOrder order : pendingOrders) {
             try {
@@ -62,7 +62,7 @@ public class LimitOrderTracker {
                 for (JsonNode openOrder : openOrdersResponse.get("data")) {
                     if (openOrder.has("orderId") && openOrder.get("orderId").asText().equals(order.getOrderId())) {
                         orderFoundInOpen = true;
-                        log.debug("Zlecenie {} wciąż oczekuje (live).", order.getOrderId());
+                        log.info("Zlecenie {} wciąż oczekuje (live).", order.getOrderId());
                         break;
                     }
                 }
@@ -94,7 +94,8 @@ public class LimitOrderTracker {
                                     order.getSide(),
                                     String.valueOf(size),
                                     order.getLeverage(),
-                                    "TP/SL Batch (Fallback)"
+                                    "TP/SL Batch (Fallback)",
+                                    order.getEntryPrice()
                             );
                             break;
                         }
@@ -161,7 +162,7 @@ public class LimitOrderTracker {
 
             log.info("Wysyłanie batcha {} zleceń TP dla {}", batchOrders.size(), order.getOrderId());
             JsonNode batchResponse = blofinApiClient.placeBatchOrders(batchOrders);
-            log.debug("Odpowiedź batch TP dla {}: {}", order.getOrderId(), batchResponse);
+            log.info("Odpowiedź batch TP dla {}: {}", order.getOrderId(), batchResponse);
 
             // Stop Loss jako Algo Order (Stop Market)
             if (order.getStopLoss() != null && !order.getStopLoss().isEmpty()) {
@@ -175,7 +176,7 @@ public class LimitOrderTracker {
                         null,
                         true
                 );
-                log.debug("Odpowiedź algo SL dla {}: {}", order.getOrderId(), algoResponse);
+                log.info("Odpowiedź algo SL dla {}: {}", order.getOrderId(), algoResponse);
             }
 
             order.setStatus("PROCESSED_TP_SL");

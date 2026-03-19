@@ -129,23 +129,34 @@ public class BlofinIntegrationService {
                 saveTradeHistory(symbol, request, quantityInCrypto.toString(), chatTitle, orderType, orderPrice);
 
                 if (openResult.has("data") && openResult.get("data").isArray()
-                        && openResult.get("data").size() > 0
+                        && !openResult.get("data").isEmpty()
                         && openResult.get("data").get(0).has("orderId")) {
                     String orderId = openResult.get("data").get(0).get("orderId").asText();
                     limitOrderService.saveLimitOrder(orderId, request, symbol, quantityInCrypto.toString());
                 }
-                sendSms(request, symbol, openResult);
+                
+                // Używamy orderPrice dla zlecenia Limit
+                sendSms(request, symbol, openResult, orderPrice);
                 return openResult;
             }
 
             JsonNode openResult = openPosition(symbol, request);
 
             String executedQty = openResult.has("data") && openResult.get("data").isArray()
-                    && openResult.get("data").size() > 0
+                    && !openResult.get("data").isEmpty()
                     && openResult.get("data").get(0).has("qty")
                     ? openResult.get("data").get(0).get("qty").asText()
                     : "unknown";
-            saveTradeHistory(symbol, request, executedQty, chatTitle, "Market", null);
+            
+            // Dla market order cena jest pobierana wewnątrz openPosition, ale nie mamy jej łatwo dostępnej tutaj.
+            // Spróbujmy wyciągnąć avgPrice z odpowiedzi lub pobierzmy aktualną cenę jako przybliżenie.
+            String avgPrice = openResult.has("data") && openResult.get("data").isArray()
+                    && !openResult.get("data").isEmpty()
+                    && openResult.get("data").get(0).has("avgPrice")
+                    ? openResult.get("data").get(0).get("avgPrice").asText()
+                    : null;
+
+            saveTradeHistory(symbol, request, executedQty, chatTitle, "Market", avgPrice);
 
             if (shouldConfigurePartialTakeProfits(request)) {
                 configurePartialTakeProfits(symbol, request);
@@ -154,7 +165,7 @@ public class BlofinIntegrationService {
             }
             log.info("Zakończono otwieranie pozycji z sukcesem");
 
-            sendSms(request, symbol, openResult);
+            sendSms(request, symbol, openResult, avgPrice);
 
             return openResult;
         } catch (BlofinApiException ex) {
@@ -185,19 +196,25 @@ public class BlofinIntegrationService {
         log.info("Zapisano historię zlecenia: {}", tradeHistory);
     }
 
-    private void sendSms(AdvancedMarketPositionRequest request, String symbol, JsonNode openResult) {
+    private void sendSms(AdvancedMarketPositionRequest request, String symbol, JsonNode openResult, String entryPrice) {
         String qty = "nieznana";
         if (openResult.has("data") && openResult.get("data").isArray()
-                && openResult.get("data").size() > 0
+                && !openResult.get("data").isEmpty()
                 && openResult.get("data").get(0).has("qty")) {
             qty = openResult.get("data").get(0).get("qty").asText();
+        } else if (openResult.has("data") && openResult.get("data").isArray()
+                && !openResult.get("data").isEmpty()
+                && openResult.get("data").get(0).has("size")) {
+            qty = openResult.get("data").get(0).get("size").asText();
         }
+
         twilioNotificationService.sendPositionOpenedNotification(
                 symbol,
                 request.getSide(),
                 qty,
                 request.getLeverage(),
-                request.isLimit() ? "Limit" : "Market"
+                request.isLimit() ? "Limit" : "Market",
+                entryPrice
         );
     }
 
@@ -562,7 +579,8 @@ public class BlofinIntegrationService {
                 "Sell",
                 String.valueOf(quantity),
                 request.getLeverage(),
-                "Market"
+                "Market",
+                String.valueOf(request.getUsdtPrice())
         );
     }
 
