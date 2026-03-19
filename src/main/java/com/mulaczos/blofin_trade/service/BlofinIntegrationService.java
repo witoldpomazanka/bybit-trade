@@ -59,14 +59,14 @@ public class BlofinIntegrationService {
 
     public JsonNode getOpenPositions() {
         log.info("Pobieranie otwartych pozycji z BloFin");
-        JsonNode result = blofinApiClient.getPositions("linear", "USDT", false);
+        JsonNode result = blofinApiClient.getPositions(false);
         log.info("Pobrano dane o otwartych pozycjach: {}", result);
         return result;
     }
 
     public JsonNode getAccountBalance() {
         log.info("Pobieranie salda konta z BloFin");
-        JsonNode result = blofinApiClient.getWalletBalance("UNIFIED");
+        JsonNode result = blofinApiClient.getWalletBalance();
         log.info("Pobrano dane o saldzie konta: {}", result);
         return result;
     }
@@ -117,7 +117,6 @@ public class BlofinIntegrationService {
                         symbol, request.getSide(), orderPrice, quantityInCrypto, request.getStopLoss());
 
                 JsonNode openResult = blofinApiClient.openPosition(
-                        "linear",
                         symbol,
                         request.getSide(),
                         orderType,
@@ -245,7 +244,7 @@ public class BlofinIntegrationService {
 
     private void setLeverageForSymbol(String symbol, int leverage) {
         log.info("Ustawianie dźwigni {}x dla symbolu {}", leverage, symbol);
-        blofinApiClient.setLeverage("linear", symbol, String.valueOf(leverage));
+        blofinApiClient.setLeverage(symbol, String.valueOf(leverage));
         CURRENT_LEVERAGE = leverage;
     }
 
@@ -296,7 +295,6 @@ public class BlofinIntegrationService {
         }
 
         return blofinApiClient.openPosition(
-                "linear",
                 symbol,
                 request.getSide(),
                 orderType,
@@ -382,7 +380,7 @@ public class BlofinIntegrationService {
     }
 
     public BigDecimal getMinOrderValue(String symbol) throws IOException {
-        JsonNode instrumentInfo = blofinApiClient.getInstrumentsInfo("linear", symbol);
+        JsonNode instrumentInfo = blofinApiClient.getInstrumentsInfo(symbol);
         if (instrumentInfo.has("data") && instrumentInfo.get("data").isArray()
                 && instrumentInfo.get("data").size() > 0) {
             JsonNode instrument = instrumentInfo.get("data").get(0);
@@ -431,7 +429,7 @@ public class BlofinIntegrationService {
 
     private double getOpenedPositionQty(String symbol, String category) {
         try {
-            JsonNode positions = blofinApiClient.getPositions(category, "USDT", false);
+            JsonNode positions = blofinApiClient.getPositions(false);
             if (positions.has("data") && positions.get("data").isArray()) {
                 String instId = toInstId(symbol);
                 for (JsonNode pos : positions.get("data")) {
@@ -461,7 +459,7 @@ public class BlofinIntegrationService {
     }
 
     public BigDecimal getMinimumOrderQuantity(String symbol) throws IOException {
-        JsonNode instrumentInfo = blofinApiClient.getInstrumentsInfo("linear", symbol);
+        JsonNode instrumentInfo = blofinApiClient.getInstrumentsInfo(symbol);
         if (instrumentInfo.has("data") && instrumentInfo.get("data").isArray()
                 && instrumentInfo.get("data").size() > 0) {
             JsonNode instrument = instrumentInfo.get("data").get(0);
@@ -473,7 +471,7 @@ public class BlofinIntegrationService {
     }
 
     public BigDecimal getQuantityStep(String symbol) throws IOException {
-        JsonNode instrumentInfo = blofinApiClient.getInstrumentsInfo("linear", symbol);
+        JsonNode instrumentInfo = blofinApiClient.getInstrumentsInfo(symbol);
         if (instrumentInfo.has("data") && instrumentInfo.get("data").isArray()
                 && instrumentInfo.get("data").size() > 0) {
             JsonNode instrument = instrumentInfo.get("data").get(0);
@@ -529,7 +527,6 @@ public class BlofinIntegrationService {
         double retracementPrice = request.getUsdtPrice() * (DEFAULT_TP / request.getLeverage());
         double takeProfit = request.getUsdtPrice() - retracementPrice;
         JsonNode orderResponse = blofinApiClient.openPosition(
-                "linear",
                 symbol,
                 "Sell",
                 "Market",
@@ -540,7 +537,7 @@ public class BlofinIntegrationService {
         );
 
         var trailingStopValue = String.valueOf(retracementPrice / retracementDivider);
-        blofinApiClient.setTrailingStop("linear", symbol, trailingStopValue);
+        blofinApiClient.setTrailingStop(symbol, trailingStopValue);
 
         sendScalpSms(request, symbol, quantity);
 

@@ -53,32 +53,45 @@ public class LimitOrderTracker {
     private void checkOrderStatus(LimitOrder order) {
         order.setLastCheckedAt(LocalDateTime.now());
 
-        JsonNode orderDetailsResponse = blofinApiClient.getOrderDetails(order.getSymbol(), order.getOrderId());
-        
-        if (orderDetailsResponse.has("data") && orderDetailsResponse.get("data").isArray() && orderDetailsResponse.get("data").size() > 0) {
-            JsonNode orderData = orderDetailsResponse.get("data").get(0);
-            String apiStatus = orderData.has("state") ? orderData.get("state").asText() : "";
+        try {
+            JsonNode orderDetailsResponse = blofinApiClient.getOrderDetails(order.getSymbol(), order.getOrderId());
             
-            log.info("Status zlecenia {} na Blofinie: {}", order.getOrderId(), apiStatus);
+            if (orderDetailsResponse.has("data") && orderDetailsResponse.get("data").isArray() && !orderDetailsResponse.get("data").isEmpty()) {
+                JsonNode orderData = orderDetailsResponse.get("data").get(0);
+                String apiStatus = orderData.has("state") ? orderData.get("state").asText() : "";
+                
+                log.info("Status zlecenia {} na Blofinie: {}", order.getOrderId(), apiStatus);
 
-            if ("filled".equalsIgnoreCase(apiStatus)) {
-                log.info("Zlecenie {} zostało WYPEŁNIONE. Konfiguruję TP i SL.", order.getOrderId());
-                order.setStatus("FILLED");
-                order.setFilledAt(LocalDateTime.now());
-                
-                String filledQty = orderData.has("fillSz") ? orderData.get("fillSz").asText() : order.getQuantity();
-                executeFullPositionConfiguration(order, filledQty);
-                
-                twilioNotificationService.sendPositionOpenedNotification(
-                        order.getSymbol(),
-                        order.getSide(),
-                        filledQty,
-                        order.getLeverage(),
-                        "TP/SL Batch"
-                );
-            } else if ("canceled".equalsIgnoreCase(apiStatus)) {
-                log.info("Zlecenie {} zostało ANULOWANE. Przerywam proces.", order.getOrderId());
+                if ("filled".equalsIgnoreCase(apiStatus)) {
+                    log.info("Zlecenie {} zostało WYPEŁNIONE. Konfiguruję TP i SL.", order.getOrderId());
+                    order.setStatus("FILLED");
+                    order.setFilledAt(LocalDateTime.now());
+                    
+                    String filledQty = orderData.has("fillSz") ? orderData.get("fillSz").asText() : order.getQuantity();
+                    executeFullPositionConfiguration(order, filledQty);
+                    
+                    twilioNotificationService.sendPositionOpenedNotification(
+                            order.getSymbol(),
+                            order.getSide(),
+                            filledQty,
+                            order.getLeverage(),
+                            "TP/SL Batch"
+                    );
+                } else if ("canceled".equalsIgnoreCase(apiStatus)) {
+                    log.info("Zlecenie {} zostało ANULOWANE. Przerywam proces.", order.getOrderId());
+                    order.setStatus("ABORTED");
+                }
+            } else {
+                log.warn("Nie znaleziono szczegółów dla zlecenia {} na giełdzie. Możliwe, że wygasło lub nie istnieje.", order.getOrderId());
                 order.setStatus("ABORTED");
+            }
+        } catch (com.mulaczos.blofin_trade.exception.BlofinApiException e) {
+            // Jeśli API rzuca błąd, że nie ma takiego zlecenia
+            if ("32050".equals(e.getApiCode()) || "order_not_found".equalsIgnoreCase(e.getApiMsg())) {
+                log.warn("Zlecenie {} nie istnieje na Blofinie (błąd API). Przerywam tracking.", order.getOrderId());
+                order.setStatus("ABORTED");
+            } else {
+                throw e; // Rzuć dalej, jeśli to inny błąd (np. network/auth), żeby spróbować ponownie w następnym cyklu
             }
         }
     }
@@ -132,12 +145,13 @@ public class LimitOrderTracker {
             }
 
             log.info("Wysyłanie batcha {} zleceń TP dla {}", batchOrders.size(), order.getOrderId());
-            blofinApiClient.placeBatchOrders(batchOrders);
+            JsonNode batchResponse = blofinApiClient.placeBatchOrders(batchOrders);
+            log.debug("Odpowiedź batch TP dla {}: {}", order.getOrderId(), batchResponse);
 
             // Stop Loss jako Algo Order (Stop Market)
             if (order.getStopLoss() != null && !order.getStopLoss().isEmpty()) {
                 log.info("Wysyłanie zlecenia Stop Loss (Stop Market) dla {}", order.getOrderId());
-                blofinApiClient.placeAlgoOrder(
+                JsonNode algoResponse = blofinApiClient.placeAlgoOrder(
                         order.getSymbol(),
                         tpSide,
                         "stop_market",
@@ -146,6 +160,7 @@ public class LimitOrderTracker {
                         null,
                         true
                 );
+                log.debug("Odpowiedź algo SL dla {}: {}", order.getOrderId(), algoResponse);
             }
 
             order.setStatus("PROCESSED_TP_SL");

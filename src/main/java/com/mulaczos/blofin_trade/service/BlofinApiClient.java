@@ -69,17 +69,17 @@ public class BlofinApiClient {
         this.objectMapper = new ObjectMapper();
     }
 
-    public JsonNode getPositions(String category, String settleCoin, boolean omitLoggingResponse) {
+    public JsonNode getPositions(boolean omitLoggingResponse) {
         TreeMap<String, String> params = new TreeMap<>();
         return executeGetRequest(POSITIONS_ENDPOINT, params, omitLoggingResponse);
     }
 
-    public JsonNode getWalletBalance(String accountType) {
+    public JsonNode getWalletBalance() {
         TreeMap<String, String> params = new TreeMap<>();
         return executeGetRequest(WALLET_BALANCE_ENDPOINT, params, false);
     }
 
-    public JsonNode setLeverage(String category, String symbol, String leverage) {
+    public JsonNode setLeverage(String symbol, String leverage) {
         String instId = toInstId(symbol);
         TreeMap<String, String> params = new TreeMap<>();
         params.put("instId", instId);
@@ -91,7 +91,7 @@ public class BlofinApiClient {
         return executePostRequest(SET_LEVERAGE_ENDPOINT, params);
     }
 
-    public JsonNode openPosition(String category, String symbol, String side, String orderType,
+    public JsonNode openPosition(String symbol, String side, String orderType,
                                  String qty, String price, String takeProfit, String stopLoss) {
         String instId = toInstId(symbol);
         TreeMap<String, String> params = new TreeMap<>();
@@ -154,7 +154,7 @@ public class BlofinApiClient {
         throw new RuntimeException("Problem z pobraniem ceny rynkowej dla: " + instId);
     }
 
-    public JsonNode getInstrumentsInfo(String category, String symbol) {
+    public JsonNode getInstrumentsInfo(String symbol) {
         String instId = toInstId(symbol);
         TreeMap<String, String> params = new TreeMap<>();
         if (symbol != null && !symbol.isEmpty()) {
@@ -194,7 +194,7 @@ public class BlofinApiClient {
         throw new RuntimeException("Nie znaleziono symbolu dla: %s".formatted(coin));
     }
 
-    public boolean isSymbolSupported(String category, String symbol) {
+    public boolean isSymbolSupported(String symbol) {
         try {
             String instId = toInstId(symbol);
             TreeMap<String, String> params = new TreeMap<>();
@@ -248,7 +248,8 @@ public class BlofinApiClient {
         return executePostRequest(TPSL_ORDER_ENDPOINT, blofinParams);
     }
 
-    public JsonNode setTrailingStop(String category, String symbol, String trailingStop) {
+    @Deprecated
+    public JsonNode setTrailingStop(String symbol, String trailingStop) {
         log.warn("BloFin nie obsługuje trailing stop przez REST API v1. " +
                 "Trailing stop (wartość: {}) dla {} zostanie pominięty.", trailingStop, symbol);
         try {
