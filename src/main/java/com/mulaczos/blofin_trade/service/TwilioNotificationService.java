@@ -46,7 +46,7 @@ public class TwilioNotificationService {
         }
     }
 
-    public void sendPositionOpenedNotification(String symbol, String side, String quantity, int leverage, String orderType, String entryPrice) {
+    public void sendPositionOpenedNotification(String symbol, String side, String quantity, int leverage, String orderType, String entryPrice, String finalUsdtAmount) {
         if (!notificationsEnabled) {
             log.info("Powiadomienia SMS są wyłączone. Pominięto wysyłanie SMS.");
             return;
@@ -56,8 +56,8 @@ public class TwilioNotificationService {
             String coin = symbol.replace("-USDT", "").replace("USDT", "");
             String sideFormatted = side.equalsIgnoreCase("Buy") ? "LONG" : "SHORT";
             
-            String usdtValue = "nieznana";
-            if (entryPrice != null && quantity != null && !quantity.equals("unknown") && !quantity.equals("nieznana")) {
+            String usdtValue = finalUsdtAmount;
+            if (usdtValue == null && entryPrice != null && quantity != null && !quantity.equals("unknown") && !quantity.equals("nieznana")) {
                 try {
                     double price = Double.parseDouble(entryPrice);
                     double qty = Double.parseDouble(quantity);
@@ -66,6 +66,8 @@ public class TwilioNotificationService {
                     log.warn("Nie udało się obliczyć wartości USDT dla SMS: entryPrice={}, quantity={}", entryPrice, quantity);
                 }
             }
+
+            if (usdtValue == null) usdtValue = "nieznana";
 
             String messageBody = String.format(
                     "Otwarto pozycję: %s %s | Wartość: %s USDT | Lewar: x%d | Typ: %s",

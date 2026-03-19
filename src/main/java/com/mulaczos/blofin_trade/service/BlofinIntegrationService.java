@@ -106,9 +106,10 @@ public class BlofinIntegrationService {
 
                 String orderType = "Limit";
                 String orderPrice = request.getEntryPrice();
+                BigDecimal finalValueUsdt = quantityInCrypto.multiply(new BigDecimal(orderPrice));
 
-                log.info("Parametry zlecenia limit - symbol: {}, side: {}, cena: {}, qty: {}, stopLoss: {}, totalValue: {} USDT",
-                        symbol, request.getSide(), orderPrice, quantityInCrypto, request.getStopLoss(), totalPositionValue);
+                log.info("Parametry zlecenia limit - symbol: {}, side: {}, cena: {}, qty: {}, stopLoss: {}, totalValue: {} USDT, finalValue: {} USDT",
+                        symbol, request.getSide(), orderPrice, quantityInCrypto, request.getStopLoss(), totalPositionValue, finalValueUsdt);
 
                 JsonNode openResult = blofinApiClient.openPosition(
                         symbol,
@@ -120,7 +121,7 @@ public class BlofinIntegrationService {
                         request.getStopLoss()
                 );
 
-                saveTradeHistory(symbol, request, quantityInCrypto.toString(), chatTitle, orderType, orderPrice);
+                saveTradeHistory(symbol, request, quantityInCrypto.toString(), chatTitle, orderType, orderPrice, finalValueUsdt.toString());
 
                 if (openResult.has("data") && openResult.get("data").isArray()
                         && !openResult.get("data").isEmpty()
@@ -130,7 +131,7 @@ public class BlofinIntegrationService {
                 }
                 
                 // Używamy orderPrice dla zlecenia Limit
-                sendSms(request, symbol, openResult, orderPrice);
+                sendSms(request, symbol, openResult, orderPrice, finalValueUsdt.toString());
                 return openResult;
             }
 
@@ -150,7 +151,12 @@ public class BlofinIntegrationService {
                     ? openResult.get("data").get(0).get("avgPrice").asText()
                     : null;
 
-            saveTradeHistory(symbol, request, executedQty, chatTitle, "Market", avgPrice);
+            String calculatedValue = null;
+            if (avgPrice != null && !executedQty.equals("unknown")) {
+                calculatedValue = new BigDecimal(avgPrice).multiply(new BigDecimal(executedQty)).toString();
+            }
+
+            saveTradeHistory(symbol, request, executedQty, chatTitle, "Market", avgPrice, calculatedValue);
 
             if (shouldConfigurePartialTakeProfits(request)) {
                 configurePartialTakeProfits(symbol, request);
@@ -159,7 +165,7 @@ public class BlofinIntegrationService {
             }
             log.info("Zakończono otwieranie pozycji z sukcesem");
 
-            sendSms(request, symbol, openResult, avgPrice);
+            sendSms(request, symbol, openResult, avgPrice, calculatedValue);
 
             return openResult;
         } catch (BlofinApiException ex) {
@@ -171,7 +177,7 @@ public class BlofinIntegrationService {
         }
     }
 
-    private void saveTradeHistory(String symbol, AdvancedMarketPositionRequest request, String quantity, String chatTitle, String orderType, String entryPrice) {
+    private void saveTradeHistory(String symbol, AdvancedMarketPositionRequest request, String quantity, String chatTitle, String orderType, String entryPrice, String finalUsdtAmount) {
         TradeHistory tradeHistory = TradeHistory.builder()
                 .symbol(symbol)
                 .side(request.getSide())
@@ -183,23 +189,23 @@ public class BlofinIntegrationService {
                 .chatTitle(chatTitle)
                 .createdAt(LocalDateTime.now())
                 .orderType(orderType)
-                .usdtAmount(request.getUsdtAmount() != null ? request.getUsdtAmount().toString() : null)
+                .usdtAmount(finalUsdtAmount != null ? finalUsdtAmount : (request.getUsdtAmount() != null ? request.getUsdtAmount().toString() : null))
                 .build();
 
         tradeHistoryRepository.save(tradeHistory);
         log.info("Zapisano historię zlecenia: {}", tradeHistory);
     }
 
-    private void sendSms(AdvancedMarketPositionRequest request, String symbol, JsonNode openResult, String entryPrice) {
+    private void sendSms(AdvancedMarketPositionRequest request, String symbol, JsonNode openResult, String entryPrice, String finalUsdtAmount) {
         String qty = "nieznana";
         if (openResult.has("data") && openResult.get("data").isArray()
-                && !openResult.get("data").isEmpty()
-                && openResult.get("data").get(0).has("qty")) {
-            qty = openResult.get("data").get(0).get("qty").asText();
-        } else if (openResult.has("data") && openResult.get("data").isArray()
-                && !openResult.get("data").isEmpty()
-                && openResult.get("data").get(0).has("size")) {
-            qty = openResult.get("data").get(0).get("size").asText();
+                && !openResult.get("data").isEmpty()) {
+            JsonNode firstOrder = openResult.get("data").get(0);
+            if (firstOrder.has("qty")) {
+                qty = firstOrder.get("qty").asText();
+            } else if (firstOrder.has("size")) {
+                qty = firstOrder.get("size").asText();
+            }
         }
 
         twilioNotificationService.sendPositionOpenedNotification(
@@ -208,7 +214,8 @@ public class BlofinIntegrationService {
                 qty,
                 request.getLeverage(),
                 request.isLimit() ? "Limit" : "Market",
-                entryPrice
+                entryPrice,
+                finalUsdtAmount
         );
     }
 
@@ -533,10 +540,12 @@ public class BlofinIntegrationService {
                 null
         );
 
+        String finalValue = String.valueOf(quantity * request.getUsdtPrice());
+
         var trailingStopValue = String.valueOf(retracementPrice / retracementDivider);
         blofinApiClient.setTrailingStop(symbol, trailingStopValue);
 
-        sendScalpSms(request, symbol, quantity);
+        sendScalpSms(request, symbol, quantity, finalValue);
 
         String orderId = orderResponse.has("data") && orderResponse.get("data").isArray()
                 && orderResponse.get("data").size() > 0
@@ -553,14 +562,15 @@ public class BlofinIntegrationService {
                 .build();
     }
 
-    private void sendScalpSms(ScalpRequestDto request, String symbol, double quantity) {
+    private void sendScalpSms(ScalpRequestDto request, String symbol, double quantity, String finalValue) {
         twilioNotificationService.sendPositionOpenedNotification(
                 symbol,
                 "Sell",
                 String.valueOf(quantity),
                 request.getLeverage(),
                 "Market",
-                String.valueOf(request.getUsdtPrice())
+                String.valueOf(request.getUsdtPrice()),
+                finalValue
         );
     }
 

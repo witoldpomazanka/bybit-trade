@@ -54,61 +54,90 @@ public class LimitOrderTracker {
         order.setLastCheckedAt(LocalDateTime.now());
 
         try {
-            // Pobieramy listę wszystkich aktywnych zleceń, aby sprawdzić czy nasze wciąż tam jest
-            JsonNode openOrdersResponse = blofinApiClient.getOpenOrders(order.getSymbol());
-            boolean orderFoundInOpen = false;
+            // Pobieramy szczegóły zlecenia, aby sprawdzić jego realny status
+            JsonNode orderDetailsResponse = blofinApiClient.getOrderDetails(order.getSymbol(), order.getOrderId());
             
-            if (openOrdersResponse.has("data") && openOrdersResponse.get("data").isArray()) {
-                for (JsonNode openOrder : openOrdersResponse.get("data")) {
-                    if (openOrder.has("orderId") && openOrder.get("orderId").asText().equals(order.getOrderId())) {
-                        orderFoundInOpen = true;
-                        log.info("Zlecenie {} wciąż oczekuje (live).", order.getOrderId());
-                        break;
-                    }
-                }
-            }
+            if (orderDetailsResponse.has("data") && orderDetailsResponse.get("data").isArray() 
+                    && !orderDetailsResponse.get("data").isEmpty()) {
+                
+                JsonNode orderData = orderDetailsResponse.get("data").get(0);
+                String state = orderData.has("state") ? orderData.get("state").asText() : "";
+                String filledQty = orderData.has("filledQty") ? orderData.get("filledQty").asText() : "0";
 
-            if (!orderFoundInOpen) {
-                // Jeśli nie ma go w otwartych, to albo wypełnione, albo anulowane.
-                // Używamy getPositions, aby sprawdzić czy pozycja się pojawiła (Filled)
-                JsonNode positionsResponse = blofinApiClient.getPositions(true);
-                boolean positionFound = false;
+                log.info("Status zlecenia {} na giełdzie: {}, wypełniono: {}", order.getOrderId(), state, filledQty);
 
-                if (positionsResponse.has("data") && positionsResponse.get("data").isArray()) {
-                    String expectedInstId = order.getSymbol().contains("-") ? order.getSymbol() : order.getSymbol().replace("USDT", "-USDT");
-                    for (JsonNode pos : positionsResponse.get("data")) {
-                        String posInstId = pos.has("instId") ? pos.get("instId").asText() : "";
-                        double size = pos.has("positions") ? Math.abs(pos.get("positions").asDouble()) : 0;
-                        
-                        if (posInstId.equals(expectedInstId) && size > 0) {
-                            positionFound = true;
-                            log.info("Zlecenie {} zniknęło z otwartych, ale znaleziono aktywną pozycję. Markujemy jako FILLED.", order.getOrderId());
-                            
-                            order.setStatus("FILLED");
-                            order.setFilledAt(LocalDateTime.now());
-                            
-                            executeFullPositionConfiguration(order, String.valueOf(size));
-                            
-                            twilioNotificationService.sendPositionOpenedNotification(
-                                    order.getSymbol(),
-                                    order.getSide(),
-                                    String.valueOf(size),
-                                    order.getLeverage(),
-                                    "TP/SL Batch (Fallback)",
-                                    order.getEntryPrice()
-                            );
-                            break;
-                        }
-                    }
-                }
-
-                if (!positionFound) {
-                    log.info("Zlecenie {} zniknęło z otwartych i nie ma aktywnej pozycji. Markujemy jako ABORTED (Canceled/Expired).", order.getOrderId());
+                if ("filled".equalsIgnoreCase(state)) {
+                    log.info("Zlecenie {} zostało wypełnione. Rozpoczynam konfigurację TP/SL.", order.getOrderId());
+                    order.setStatus("FILLED");
+                    order.setFilledAt(LocalDateTime.now());
+                    
+                    executeFullPositionConfiguration(order, filledQty);
+                    
+                    // Wartość USDT dla SMS
+                    BigDecimal filledValue = new BigDecimal(filledQty).multiply(new BigDecimal(order.getEntryPrice()));
+                    
+                    twilioNotificationService.sendPositionOpenedNotification(
+                            order.getSymbol(),
+                            order.getSide(),
+                            filledQty,
+                            order.getLeverage(),
+                            "Limit (Filled)",
+                            order.getEntryPrice(),
+                            filledValue.toString()
+                    );
+                } else if ("canceled".equalsIgnoreCase(state)) {
+                    log.info("Zlecenie {} zostało anulowane na giełdzie. Markujemy jako ABORTED.", order.getOrderId());
                     order.setStatus("ABORTED");
+                } else {
+                    log.info("Zlecenie {} wciąż oczekuje (status: {}).", order.getOrderId(), state);
                 }
+            } else {
+                // Jeśli nie ma danych o zleceniu, może to być błąd API lub zlecenie wygasło
+                log.warn("Brak danych w odpowiedzi dla zlecenia {}. Sprawdzam pozycje jako fallback.", order.getOrderId());
+                checkStatusByPositionsFallback(order);
             }
         } catch (Exception e) {
-            log.error("Błąd podczas sprawdzania statusu zlecenia {} (fallback mode): {}", order.getOrderId(), e.getMessage());
+            log.error("Błąd podczas sprawdzania statusu zlecenia {}: {}", order.getOrderId(), e.getMessage());
+            // W przypadku błędu API (np. 152404), próbujemy sprawdzić pozycje
+            checkStatusByPositionsFallback(order);
+        }
+    }
+
+    private void checkStatusByPositionsFallback(LimitOrder order) {
+        try {
+            JsonNode positionsResponse = blofinApiClient.getPositions(true);
+            if (positionsResponse.has("data") && positionsResponse.get("data").isArray()) {
+                String expectedInstId = order.getSymbol().contains("-") ? order.getSymbol() : order.getSymbol().replace("USDT", "-USDT");
+                for (JsonNode pos : positionsResponse.get("data")) {
+                    String posInstId = pos.has("instId") ? pos.get("instId").asText() : "";
+                    double size = pos.has("positions") ? Math.abs(pos.get("positions").asDouble()) : 0;
+                    
+                    if ((posInstId.equals(expectedInstId) || posInstId.replace("-", "").equals(order.getSymbol())) && size > 0) {
+                        log.info("Znaleziono aktywną pozycję dla zlecenia {} przez fallback. Markujemy jako FILLED.", order.getOrderId());
+                        order.setStatus("FILLED");
+                        order.setFilledAt(LocalDateTime.now());
+                        
+                        String sizeStr = String.valueOf(size);
+                        executeFullPositionConfiguration(order, sizeStr);
+                        
+                        BigDecimal filledValue = BigDecimal.valueOf(size).multiply(new BigDecimal(order.getEntryPrice()));
+                        twilioNotificationService.sendPositionOpenedNotification(
+                                order.getSymbol(),
+                                order.getSide(),
+                                sizeStr,
+                                order.getLeverage(),
+                                "Limit (Fallback)",
+                                order.getEntryPrice(),
+                                filledValue.toString()
+                        );
+                        return;
+                    }
+                }
+            }
+            log.info("Zlecenie {} nie zostało odnalezione w pozycjach. Markujemy jako ABORTED (Canceled/Expired).", order.getOrderId());
+            order.setStatus("ABORTED");
+        } catch (Exception e) {
+            log.error("Błąd w fallbacku dla zlecenia {}: {}", order.getOrderId(), e.getMessage());
         }
     }
 
