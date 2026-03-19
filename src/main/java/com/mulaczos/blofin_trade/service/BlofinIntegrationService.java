@@ -95,12 +95,18 @@ public class BlofinIntegrationService {
             if (request.isLimit()) {
                 log.info("Wykryto zlecenie limit - specjalna obsługa");
 
+                BigDecimal initialMargin = request.getUsdtAmount() != null 
+                        ? request.getUsdtAmount() 
+                        : BigDecimal.valueOf(minUsdtAmountForTrade);
+                
+                BigDecimal positionValueForCalculation = initialMargin.multiply(BigDecimal.valueOf(request.getLeverage()));
+                log.info("Limit order - Initial Margin: {} USDT, Position Value: {} USDT (leverage: {}x)", 
+                        initialMargin, positionValueForCalculation, request.getLeverage());
+
                 BigDecimal quantityInCrypto = calculatePositionSize(
                         symbol,
                         BigDecimal.valueOf(Double.parseDouble(request.getEntryPrice())),
-                        request.getUsdtAmount() != null
-                                ? request.getUsdtAmount().multiply(BigDecimal.valueOf(request.getLeverage()))
-                                : BigDecimal.valueOf(minUsdtAmountForTrade).multiply(BigDecimal.valueOf(request.getLeverage()))
+                        positionValueForCalculation
                 );
 
                 String orderType = "Limit";
@@ -243,44 +249,51 @@ public class BlofinIntegrationService {
     }
 
     private JsonNode openPosition(String symbol, AdvancedMarketPositionRequest request) throws IOException {
-        log.info("Rozpoczynam przygotowanie pozycji");
+        log.info("Rozpoczynam przygotowanie pozycji Market");
 
         log.info("Pobieranie aktualnej ceny rynkowej dla {}", symbol);
         double currentPrice = blofinApiClient.getMarketPrice("linear", symbol);
         BigDecimal price = BigDecimal.valueOf(currentPrice);
         log.info("Aktualna cena rynkowa dla {}: {}", symbol, price);
 
-        BigDecimal positionValueInUsdtAfterLeverageMultiply;
-        if (request.getUsdtAmount() != null) {
-            positionValueInUsdtAfterLeverageMultiply = request.getUsdtAmount().multiply(BigDecimal.valueOf(request.getLeverage()));
-            log.info("Używam wartości z requestu: {}", positionValueInUsdtAfterLeverageMultiply);
-        } else {
-            positionValueInUsdtAfterLeverageMultiply = BigDecimal.valueOf(minUsdtAmountForTrade).multiply(BigDecimal.valueOf(request.getLeverage()));
-            log.info("Używam wartości minimalnej: {}", positionValueInUsdtAfterLeverageMultiply);
-        }
-        log.info("Wartość pozycji po uwzględnieniu dźwigni: {}", positionValueInUsdtAfterLeverageMultiply);
+        // Initial Margin to rzeczywista kwota pobrana z konta
+        BigDecimal initialMargin = request.getUsdtAmount() != null 
+                ? request.getUsdtAmount() 
+                : BigDecimal.valueOf(minUsdtAmountForTrade);
+        
+        // Position Value = Initial Margin * Leverage (całkowita wartość pozycji na giełdzie)
+        BigDecimal positionValue = initialMargin.multiply(BigDecimal.valueOf(request.getLeverage()));
+        
+        log.info("=== OBLICZANIE POZYCJI ===");
+        log.info("Initial Margin (kwota z konta): {} USDT", initialMargin);
+        log.info("Leverage: {}x", request.getLeverage());
+        log.info("Position Value (wartość pozycji): {} USDT", positionValue);
+        log.info("Cena entrada: {} USDT", price);
 
-        BigDecimal quantityInCrypto = calculatePositionSize(symbol, price, positionValueInUsdtAfterLeverageMultiply);
-        log.info("Obliczona wielkość pozycji: {}", quantityInCrypto);
+        BigDecimal quantityInCrypto = calculatePositionSize(symbol, price, positionValue);
+        log.info("Obliczona wielkość pozycji: {} (wartość: {} USDT)", quantityInCrypto, quantityInCrypto.multiply(price));
 
         String orderType = request.isLimit() ? "Limit" : "Market";
         String orderPrice = request.isLimit() ? request.getEntryPrice() : null;
 
-        log.info("Parametry zlecenia - symbol: {}, side: {}, typ: {}, cena: {}, qty: {}, takeProfit: {}, stopLoss: {}, obecna dźwignia: x{}",
-                symbol, request.getSide(), orderType, orderPrice, quantityInCrypto, request.getTakeProfit(), request.getStopLoss(), CURRENT_LEVERAGE);
+        log.info("Parametry zlecenia - symbol: {}, side: {}, typ: {}, cena: {}, qty: {}, takeProfit: {}, stopLoss: {}, dźwignia: {}x",
+                symbol, request.getSide(), orderType, orderPrice, quantityInCrypto, request.getTakeProfit(), request.getStopLoss(), request.getLeverage());
 
-        BigDecimal valueToDeduct;
-        if (request.isLimit()) {
-            valueToDeduct = quantityInCrypto.multiply(new BigDecimal(request.getEntryPrice())).divide(new BigDecimal(CURRENT_LEVERAGE), 8, RoundingMode.HALF_UP);
-            log.info("⚠️  Jeśli zlecenie LIMIT zostanie w pełni zrealizowane, z konta zostanie pobrane około {} USDT (cena limit: {}, ilość: {}, dźwignia: {}x)", valueToDeduct, request.getEntryPrice(), quantityInCrypto, CURRENT_LEVERAGE);
+        // Wyliczenie rzeczywistego marginesu, który będzie wymagany
+        BigDecimal requiredMargin = quantityInCrypto.multiply(price)
+                .divide(BigDecimal.valueOf(request.getLeverage()), 8, RoundingMode.HALF_UP);
+        
+        log.info("⚠️  WYMAGANY MARGINES: {} USDT", requiredMargin);
+        log.info("⚠️  PLANOWANY INITIAL MARGIN: {} USDT", initialMargin);
+        
+        if (requiredMargin.compareTo(initialMargin) > 0) {
+            log.error("❌ BŁĄD! System chce wziąć {} USDT marginesu, a planujesz {} USDT! Różnica: {} USDT", 
+                    requiredMargin, initialMargin, requiredMargin.subtract(initialMargin));
+        } else if (requiredMargin.compareTo(initialMargin) < 0) {
+            log.info("✅ Margines OK. Planujesz {} USDT, wymagamy {} USDT. Nadwyżka: {} USDT",
+                    initialMargin, requiredMargin, initialMargin.subtract(requiredMargin));
         } else {
-            valueToDeduct = quantityInCrypto.multiply(price).divide(new BigDecimal(CURRENT_LEVERAGE), 8, RoundingMode.HALF_UP);
-            log.info("⚠️  Z konta zostanie pobrane {} USDT (przy dźwigni {}x, ilość: {}, cena: {})", valueToDeduct, CURRENT_LEVERAGE, quantityInCrypto, price);
-        }
-
-        var requestedAmount = request.getUsdtAmount() != null ? request.getUsdtAmount() : BigDecimal.valueOf(minUsdtAmountForTrade);
-        if (valueToDeduct.compareTo(requestedAmount) > 0) {
-            log.warn("⚠️⚠️  UWAGA! Z konta będzie pobrane {} USDT, podczas gdy żądałeś {} USDT! Różnica: {} USDT", valueToDeduct, requestedAmount, valueToDeduct.subtract(requestedAmount));
+            log.info("✅ Margines dokładnie dopasowany: {} USDT", requiredMargin);
         }
 
         return blofinApiClient.openPosition(
@@ -384,25 +397,27 @@ public class BlofinIntegrationService {
     }
 
     private BigDecimal calculatePositionSize(String symbol, BigDecimal price, BigDecimal positionValue) throws IOException {
+        log.info("Obliczanie ilości (Qty): positionValue={}, price={}", positionValue, price);
+        
         BigDecimal minQtyFromApi = getMinimumOrderQuantity(symbol);
         BigDecimal minOrderValue = getMinOrderValue(symbol);
 
+        // Qty = Position Value / Price
         BigDecimal quantity = positionValue.divide(price, 8, RoundingMode.HALF_UP);
         BigDecimal orderValue = quantity.multiply(price);
 
-        log.info("Obliczanie wielkości pozycji - positionValue: {}, price: {}, quantity: {}, orderValue: {}, minOrderValue: {}",
-                positionValue, price, quantity, orderValue, minOrderValue);
+        log.info("Wstępna ilość: {}, wartość zamówienia: {} USDT", quantity, orderValue);
+        log.info("Minimalne wymogi - ilość: {}, wartość: {} USDT", minQtyFromApi, minOrderValue);
 
         // Jeśli obliczona wartość zamówienia jest poniżej minimum, użyjemy wartości minimalnej
         if (orderValue.compareTo(minOrderValue) < 0) {
-            log.warn("Obliczona wartość zamówienia {} USDT jest poniżej minimum {} USDT. Będziemy używać minimalną wartość.",
+            log.warn("Wartość zamówienia {} USDT jest poniżej minimum {} USDT - dostosowanie ilości", 
                     orderValue, minOrderValue);
             quantity = minOrderValue.divide(price, 8, RoundingMode.UP);
         }
 
         if (quantity.compareTo(minQtyFromApi) < 0) {
-            log.warn("Obliczona ilość {} jest poniżej minimum {} z API. Będziemy używać minimum z API.",
-                    quantity, minQtyFromApi);
+            log.warn("Ilość {} jest poniżej minimum {} - używamy minimum", quantity, minQtyFromApi);
             quantity = minQtyFromApi;
         }
 
@@ -410,7 +425,7 @@ public class BlofinIntegrationService {
         quantity = roundToValidQuantity(quantity, qtyStep);
 
         BigDecimal finalOrderValue = quantity.multiply(price);
-        log.info("Finalna wielkość pozycji: {} (wartość: {} USDT)", quantity, finalOrderValue);
+        log.info("Finalna ilość: {} (wartość: {} USDT)", quantity, finalOrderValue);
 
         return quantity;
     }
