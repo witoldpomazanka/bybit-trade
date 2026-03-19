@@ -35,11 +35,8 @@ public class BlofinIntegrationService {
     private static int CURRENT_LEVERAGE = DEFAULT_LEVERAGE;
     private static final double DEFAULT_TP = 0.05;
 
-    @Value("${min-usdt-amount-for-trade}")
-    private Double minUsdtAmountForTrade;
-
-    @Value("${max-usdt-amount-for-trade}")
-    private Double maxUsdtAmountForTrade;
+    @Value("${usd-amount-for-trade:10.0}")
+    private Double usdAmountForTrade;
 
     @Value("${retracement.divider:2}")
     private Double retracementDivider;
@@ -54,7 +51,7 @@ public class BlofinIntegrationService {
     public void init() {
         log.info("Inicjalizacja BloFin - ustawianie domyślnej dźwigni {}x", DEFAULT_LEVERAGE);
         setLeverageForSymbol("BTCUSDT", DEFAULT_LEVERAGE);
-        log.info("Wartość w USDT dla minimalnego domyślnego zagrania, jeśli nie zdefiniowane w payload: {}", minUsdtAmountForTrade);
+        log.info("Wartość w USDT dla minimalnego domyślnego zagrania, jeśli nie zdefiniowane w payload: {}", usdAmountForTrade);
     }
 
     public JsonNode getOpenPositions() {
@@ -98,23 +95,20 @@ public class BlofinIntegrationService {
             if (request.isLimit()) {
                 log.info("Wykryto zlecenie limit - specjalna obsługa");
 
-                BigDecimal initialMargin = validateAndClampUsdtAmount(request.getUsdtAmount());
-
-                BigDecimal positionValueForCalculation = initialMargin.multiply(BigDecimal.valueOf(request.getLeverage()));
-                log.info("Limit order - Initial Margin: {} USDT, Position Value: {} USDT (leverage: {}x)",
-                        initialMargin, positionValueForCalculation, request.getLeverage());
+                BigDecimal totalPositionValue = BigDecimal.valueOf(usdAmountForTrade);
+                log.info("Docelowa wartość pozycji (Total Position Value): {} USDT", totalPositionValue);
 
                 BigDecimal quantityInCrypto = calculatePositionSize(
                         symbol,
                         BigDecimal.valueOf(Double.parseDouble(request.getEntryPrice())),
-                        positionValueForCalculation
+                        totalPositionValue
                 );
 
                 String orderType = "Limit";
                 String orderPrice = request.getEntryPrice();
 
-                log.info("Parametry zlecenia limit - symbol: {}, side: {}, cena: {}, qty: {}, stopLoss: {}",
-                        symbol, request.getSide(), orderPrice, quantityInCrypto, request.getStopLoss());
+                log.info("Parametry zlecenia limit - symbol: {}, side: {}, cena: {}, qty: {}, stopLoss: {}, totalValue: {} USDT",
+                        symbol, request.getSide(), orderPrice, quantityInCrypto, request.getStopLoss(), totalPositionValue);
 
                 JsonNode openResult = blofinApiClient.openPosition(
                         symbol,
@@ -273,19 +267,16 @@ public class BlofinIntegrationService {
         BigDecimal price = BigDecimal.valueOf(currentPrice);
         log.info("Aktualna cena rynkowa dla {}: {}", symbol, price);
 
-        // Initial Margin to rzeczywista kwota pobrana z konta
-        BigDecimal initialMargin = validateAndClampUsdtAmount(request.getUsdtAmount());
-
-        // Position Value = Initial Margin * Leverage (całkowita wartość pozycji na giełdzie)
-        BigDecimal positionValue = initialMargin.multiply(BigDecimal.valueOf(request.getLeverage()));
+        // Docelowa kwota z nowej zmiennej USD_AMOUNT_FOR_TRADE (całkowita wartość pozycji po lewarze)
+        BigDecimal totalPositionValue = BigDecimal.valueOf(usdAmountForTrade).multiply(BigDecimal.valueOf(request.getLeverage()));
 
         log.info("=== OBLICZANIE POZYCJI ===");
-        log.info("Initial Margin (kwota z konta): {} USDT", initialMargin);
+        log.info("Initial Margin (Twoja kwota wejścia): {} USDT", usdAmountForTrade);
         log.info("Leverage: {}x", request.getLeverage());
-        log.info("Position Value (wartość pozycji): {} USDT", positionValue);
+        log.info("Total Position Value (wartość pozycji na giełdzie): {} USDT", totalPositionValue);
         log.info("Cena entrada: {} USDT", price);
 
-        BigDecimal quantityInCrypto = calculatePositionSize(symbol, price, positionValue);
+        BigDecimal quantityInCrypto = calculatePositionSize(symbol, price, totalPositionValue);
         log.info("Obliczona wielkość pozycji: {} (wartość: {} USDT)", quantityInCrypto, quantityInCrypto.multiply(price));
 
         String orderType = request.isLimit() ? "Limit" : "Market";
@@ -298,18 +289,7 @@ public class BlofinIntegrationService {
         BigDecimal requiredMargin = quantityInCrypto.multiply(price)
                 .divide(BigDecimal.valueOf(request.getLeverage()), 8, RoundingMode.HALF_UP);
 
-        log.info("⚠️  WYMAGANY MARGINES: {} USDT", requiredMargin);
-        log.info("⚠️  PLANOWANY INITIAL MARGIN: {} USDT", initialMargin);
-
-        if (requiredMargin.compareTo(initialMargin) > 0) {
-            log.error("❌ BŁĄD! System chce wziąć {} USDT marginesu, a planujesz {} USDT! Różnica: {} USDT",
-                    requiredMargin, initialMargin, requiredMargin.subtract(initialMargin));
-        } else if (requiredMargin.compareTo(initialMargin) < 0) {
-            log.info("✅ Margines OK. Planujesz {} USDT, wymagamy {} USDT. Nadwyżka: {} USDT",
-                    initialMargin, requiredMargin, initialMargin.subtract(requiredMargin));
-        } else {
-            log.info("✅ Margines dokładnie dopasowany: {} USDT", requiredMargin);
-        }
+        log.info("⚠️  WYMAGANY MARGINES (Initial Margin): {} USDT", requiredMargin);
 
         return blofinApiClient.openPosition(
                 symbol,
@@ -600,8 +580,8 @@ public class BlofinIntegrationService {
      * Kwota to ostateczny Initial Margin do trade'a (nie pomnożony przez leverage!)
      */
     private BigDecimal validateAndClampUsdtAmount(BigDecimal payloadAmount) {
-        BigDecimal minAmount = BigDecimal.valueOf(minUsdtAmountForTrade);
-        BigDecimal maxAmount = BigDecimal.valueOf(maxUsdtAmountForTrade);
+        BigDecimal minAmount = BigDecimal.valueOf(usdAmountForTrade);
+        BigDecimal maxAmount = BigDecimal.valueOf(usdAmountForTrade);
 
         if (payloadAmount == null) {
             // Jeśli brak kwoty, użyj średniej z min i max
