@@ -80,7 +80,7 @@ public class BlofinApiClient {
         TreeMap<String, String> params = new TreeMap<>();
         params.put("instId", instId);
         params.put("leverage", leverage);
-        params.put("marginMode", "cross");
+        params.put("marginMode", "isolated");
         params.put("positionSide", "net");
 
         log.info("Ustawianie dźwigni dla instrumentu {}: {}x", instId, leverage);
@@ -92,7 +92,7 @@ public class BlofinApiClient {
         String instId = toInstId(symbol);
         TreeMap<String, String> params = new TreeMap<>();
         params.put("instId", instId);
-        params.put("marginMode", "cross");
+        params.put("marginMode", "isolated");
         params.put("positionSide", "net");
         params.put("side", side.toLowerCase());
         params.put("orderType", mapOrderType(orderType));
@@ -214,7 +214,7 @@ public class BlofinApiClient {
             blofinParams.put("instId", toInstId(params.get("symbol").toString()));
         }
 
-        blofinParams.put("marginMode", "cross");
+        blofinParams.put("marginMode", "isolated");
         blofinParams.put("positionSide", "net");
         blofinParams.put("side", "buy");
 
@@ -413,4 +413,3 @@ public class BlofinApiClient {
         }
     }
 }
-
