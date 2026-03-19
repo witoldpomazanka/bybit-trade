@@ -3,18 +3,19 @@ package com.mulaczos.blofin_trade.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.mulaczos.blofin_trade.model.LimitOrder;
 import com.mulaczos.blofin_trade.model.LimitOrderTakeProfit;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.math.RoundingMode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
-
-import java.math.BigDecimal;
-import java.time.LocalDateTime;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
 
 @Component
 @RequiredArgsConstructor
@@ -52,107 +53,104 @@ public class LimitOrderTracker {
     private void checkOrderStatus(LimitOrder order) {
         order.setLastCheckedAt(LocalDateTime.now());
 
-        JsonNode positions = blofinApiClient.getPositions("linear", "USDT", true);
-        boolean positionFound = false;
+        JsonNode orderDetailsResponse = blofinApiClient.getOrderDetails(order.getSymbol(), order.getOrderId());
+        
+        if (orderDetailsResponse.has("data") && orderDetailsResponse.get("data").isArray() && orderDetailsResponse.get("data").size() > 0) {
+            JsonNode orderData = orderDetailsResponse.get("data").get(0);
+            String apiStatus = orderData.has("state") ? orderData.get("state").asText() : "";
+            
+            log.info("Status zlecenia {} na Blofinie: {}", order.getOrderId(), apiStatus);
 
-        if (positions.has("data") && positions.get("data").isArray()) {
-            JsonNode positionsList = positions.get("data");
-            for (JsonNode position : positionsList) {
-                String posInstId = position.has("instId") ? position.get("instId").asText() : "";
-                String expectedInstId = order.getSymbol().endsWith("USDT")
-                        ? order.getSymbol().replace("USDT", "-USDT") : order.getSymbol();
-                double posSize = position.has("positions")
-                        ? Math.abs(position.get("positions").asDouble()) : 0;
-
-                if ((posInstId.equals(expectedInstId) || posInstId.replace("-", "").equals(order.getSymbol()))
-                        && posSize > 0) {
-
-                    positionFound = true;
-                    log.info("Znaleziono otwartą pozycję dla zlecenia limit: {}", order.getOrderId());
-
-                    order.setStatus("FILLED");
-                    order.setFilledAt(LocalDateTime.now());
-
-                    configurePartialTakeProfits(order, position);
-
-                    twilioNotificationService.sendPositionOpenedNotification(
-                            order.getSymbol(),
-                            order.getSide(),
-                            order.getQuantity(),
-                            order.getLeverage(),
-                            "TPKI dla limitu"
-                    );
-                    break;
-                }
+            if ("filled".equalsIgnoreCase(apiStatus)) {
+                log.info("Zlecenie {} zostało WYPEŁNIONE. Konfiguruję TP i SL.", order.getOrderId());
+                order.setStatus("FILLED");
+                order.setFilledAt(LocalDateTime.now());
+                
+                String filledQty = orderData.has("fillSz") ? orderData.get("fillSz").asText() : order.getQuantity();
+                executeFullPositionConfiguration(order, filledQty);
+                
+                twilioNotificationService.sendPositionOpenedNotification(
+                        order.getSymbol(),
+                        order.getSide(),
+                        filledQty,
+                        order.getLeverage(),
+                        "TP/SL Batch"
+                );
+            } else if ("canceled".equalsIgnoreCase(apiStatus)) {
+                log.info("Zlecenie {} zostało ANULOWANE. Przerywam proces.", order.getOrderId());
+                order.setStatus("ABORTED");
             }
-        }
-
-        if (!positionFound) {
-            log.debug("Nie znaleziono otwartej pozycji dla zlecenia: {}, symbol: {}", order.getOrderId(), order.getSymbol());
         }
     }
 
-    private void configurePartialTakeProfits(LimitOrder order, JsonNode position) {
+    private void executeFullPositionConfiguration(LimitOrder order, String filledQty) {
         try {
             List<LimitOrderTakeProfit> takeProfits = limitOrderService.getUnprocessedTakeProfitsForOrder(order.getId());
             if (takeProfits.isEmpty()) {
-                log.info("Brak nieskonfigurowanych take-profits dla zlecenia: {}", order.getOrderId());
+                log.info("Brak take-profits do wystawienia dla zlecenia: {}", order.getOrderId());
                 order.setStatus("PROCESSED_TP_SL");
                 return;
             }
 
-            double positionSize = position.has("positions")
-                    ? Math.abs(position.get("positions").asDouble()) : 0;
-            log.info("Wielkość pozycji do konfiguracji TP: {}", positionSize);
-
-            BigDecimal minQty = blofinIntegrationService.getMinimumOrderQuantity(order.getSymbol());
-            log.info("Minimalny limit dla {}: {}", order.getSymbol(), minQty);
-
+            BigDecimal totalQty = new BigDecimal(filledQty);
+            BigDecimal lotSize = blofinIntegrationService.getQuantityStep(order.getSymbol());
+            
             int tpCount = takeProfits.size();
-            double basePartSize = Math.floor((positionSize / tpCount) * 100) / 100.0;
-            double remainingQty = positionSize;
+            // Ilość na jeden TP: totalQty / tpCount, zaokrąglone w dół do lotSize
+            BigDecimal baseTpQty = totalQty.divide(BigDecimal.valueOf(tpCount), 8, RoundingMode.DOWN);
+            baseTpQty = blofinIntegrationService.roundToValidQuantity(baseTpQty, lotSize);
+            // roundToValidQuantity używa RoundingMode.UP, ale chcemy RoundingMode.DOWN zgodnie z instrukcją "zaokrąglaj w dół"
+            // Poprawmy to lokalnie lub użyjmy dedykowanej logiki.
+            
+            // Re-implementing rounding down to lotSize
+            baseTpQty = totalQty.divide(BigDecimal.valueOf(tpCount), 8, RoundingMode.DOWN);
+            BigDecimal multiplier = baseTpQty.divide(lotSize, 0, RoundingMode.DOWN);
+            baseTpQty = multiplier.multiply(lotSize);
 
-            for (int i = 0; i < takeProfits.size(); i++) {
+            List<Map<String, String>> batchOrders = new ArrayList<>();
+            BigDecimal remainingQty = totalQty;
+            String tpSide = "buy".equalsIgnoreCase(order.getSide()) ? "sell" : "buy";
+
+            for (int i = 0; i < tpCount; i++) {
                 LimitOrderTakeProfit tp = takeProfits.get(i);
-                int tpNumber = tp.getPosition();
-                boolean isLast = (i == takeProfits.size() - 1);
+                boolean isLast = (i == tpCount - 1);
+                BigDecimal currentTpQty = isLast ? remainingQty : baseTpQty;
 
-                double tpSize = isLast ? remainingQty : basePartSize;
-
-                if (BigDecimal.valueOf(tpSize).compareTo(minQty) < 0) {
-                    tpSize = minQty.doubleValue();
-                }
-
-                Map<String, Object> tpReq = new HashMap<>();
-                tpReq.put("category", "linear");
-                tpReq.put("symbol", order.getSymbol());
-                tpReq.put("tpslMode", "Partial");
-                tpReq.put("tpOrderType", "Market");
-                tpReq.put("tpSize", String.valueOf(tpSize));
-                tpReq.put("takeProfit", tp.getPrice());
-                tpReq.put("positionIdx", 0);
-
-                if (order.getStopLoss() != null) {
-                    tpReq.put("stopLoss", order.getStopLoss());
-                }
-
-                log.info("Ustawianie partial TP {} - parametry: {}", tpNumber, tpReq);
-                blofinApiClient.setTradingStop(tpReq);
-
+                Map<String, String> tpOrder = new HashMap<>();
+                tpOrder.put("instId", order.getSymbol().contains("-") ? order.getSymbol() : order.getSymbol().replace("USDT", "-USDT"));
+                tpOrder.put("marginMode", "isolated");
+                tpOrder.put("positionSide", "net");
+                tpOrder.put("side", tpSide);
+                tpOrder.put("orderType", "limit");
+                tpOrder.put("size", currentTpQty.toPlainString());
+                tpOrder.put("price", tp.getPrice());
+                tpOrder.put("reduceOnly", "true");
+                
+                batchOrders.add(tpOrder);
+                remainingQty = remainingQty.subtract(currentTpQty);
                 tp.setProcessed(true);
+            }
 
-                if (!isLast) {
-                    remainingQty -= tpSize;
-                }
+            log.info("Wysyłanie batcha {} zleceń TP dla {}", batchOrders.size(), order.getOrderId());
+            blofinApiClient.placeBatchOrders(batchOrders);
+
+            // Stop Loss jako Algo Order (Stop Market)
+            if (order.getStopLoss() != null && !order.getStopLoss().isEmpty()) {
+                log.info("Wysyłanie zlecenia Stop Loss (Stop Market) dla {}", order.getOrderId());
+                blofinApiClient.placeAlgoOrder(
+                        order.getSymbol(),
+                        tpSide,
+                        "stop_market",
+                        totalQty.toPlainString(),
+                        order.getStopLoss(),
+                        null,
+                        true
+                );
             }
 
             order.setStatus("PROCESSED_TP_SL");
-            log.info("Wszystkie TP dla zlecenia {} zostały skonfigurowane", order.getOrderId());
-
         } catch (Exception e) {
-            log.error("Błąd podczas konfiguracji take-profits dla zlecenia {}: {}",
-                    order.getOrderId(), e.getMessage(), e);
+            log.error("Błąd podczas konfiguracji TP/SL dla zlecenia {}: {}", order.getOrderId(), e.getMessage(), e);
         }
     }
 }
-

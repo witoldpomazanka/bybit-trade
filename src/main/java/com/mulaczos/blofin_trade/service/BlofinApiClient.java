@@ -16,6 +16,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.UUID;
@@ -44,6 +45,9 @@ public class BlofinApiClient {
     private static final String WALLET_BALANCE_ENDPOINT = "/api/v1/account/balance";
     private static final String SET_LEVERAGE_ENDPOINT = "/api/v1/account/set-leverage";
     private static final String PLACE_ORDER_ENDPOINT = "/api/v1/trade/order";
+    private static final String ORDER_DETAILS_ENDPOINT = "/api/v1/trade/order-details";
+    private static final String BATCH_ORDERS_ENDPOINT = "/api/v1/trade/batch-orders";
+    private static final String ALGO_ORDER_ENDPOINT = "/api/v1/trade/order-algo";
     private static final String TPSL_ORDER_ENDPOINT = "/api/v1/trade/order-tpsl";
 
     private static final String HMAC_SHA256 = "HmacSHA256";
@@ -250,6 +254,83 @@ public class BlofinApiClient {
         try {
             return objectMapper.readTree("{\"code\":\"0\",\"msg\":\"trailing_stop_not_supported\",\"data\":{}}");
         } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    public JsonNode getOrderDetails(String symbol, String orderId) {
+        String instId = toInstId(symbol);
+        TreeMap<String, String> params = new TreeMap<>();
+        params.put("instId", instId);
+        params.put("orderId", orderId);
+        return executeGetRequest(ORDER_DETAILS_ENDPOINT, params, false);
+    }
+
+    public JsonNode placeBatchOrders(List<Map<String, String>> orders) {
+        // Blofin batch orders expects an array of order objects in the body
+        try {
+            String body = objectMapper.writeValueAsString(orders);
+            return executePostRequestWithRawBody(BATCH_ORDERS_ENDPOINT, body);
+        } catch (JsonProcessingException e) {
+            throw new RuntimeException("Błąd podczas serializacji batch orders", e);
+        }
+    }
+
+    public JsonNode placeAlgoOrder(String symbol, String side, String orderType, String size, String triggerPrice, String orderPrice, boolean reduceOnly) {
+        String instId = toInstId(symbol);
+        TreeMap<String, String> params = new TreeMap<>();
+        params.put("instId", instId);
+        params.put("side", side.toLowerCase());
+        params.put("orderType", orderType.toLowerCase()); // e.g., "stop_market"
+        params.put("size", size);
+        params.put("reduceOnly", String.valueOf(reduceOnly));
+        params.put("triggerPrice", triggerPrice);
+        if (orderPrice != null && !orderPrice.isEmpty()) {
+            params.put("price", orderPrice);
+        } else {
+            params.put("price", "-1"); // -1 typically means market for algo orders if type is stop_market
+        }
+
+        log.info("Składanie zlecenia algo: instId={}, side={}, type={}, size={}, trigger={}",
+                instId, side, orderType, size, triggerPrice);
+        return executePostRequest(ALGO_ORDER_ENDPOINT, params);
+    }
+
+    private JsonNode executePostRequestWithRawBody(String endpoint, String body) {
+        long timestamp = Instant.now().toEpochMilli();
+        String nonce = UUID.randomUUID().toString();
+
+        String signature = generateSignature(endpoint, "POST", timestamp, nonce, body);
+
+        RequestBody requestBody = RequestBody.create(
+                body,
+                MediaType.parse("application/json")
+        );
+
+        Request request = new Request.Builder()
+                .url(baseUrl + endpoint)
+                .post(requestBody)
+                .addHeader("Content-Type", "application/json")
+                .addHeader("ACCESS-KEY", apiKey)
+                .addHeader("ACCESS-SIGN", signature)
+                .addHeader("ACCESS-TIMESTAMP", String.valueOf(timestamp))
+                .addHeader("ACCESS-NONCE", nonce)
+                .addHeader("ACCESS-PASSPHRASE", passphrase)
+                .build();
+
+        try (Response response = httpClient.newCall(request).execute()) {
+            if (!response.isSuccessful()) {
+                throw new IOException("Niepowodzenie zapytania: " + response.code() + " " + response.message());
+            }
+
+            String responseBody = response.body().string();
+            log.info("Odpowiedź od API BloFin (batch/raw): {}", responseBody);
+
+            JsonNode result = objectMapper.readTree(responseBody);
+            validateApiResponse(result);
+            return result;
+        } catch (IOException e) {
+            log.error("Błąd wykonywania POST request (raw body): {}", e.getMessage(), e);
             throw new RuntimeException(e);
         }
     }
