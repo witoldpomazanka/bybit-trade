@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.mulaczos.blofin_trade.dto.AdvancedMarketPositionRequest;
 import com.mulaczos.blofin_trade.dto.ScalpRequestDto;
 import com.mulaczos.blofin_trade.dto.TradingResponseDto;
+import com.mulaczos.blofin_trade.exception.BlofinApiException;
 import com.mulaczos.blofin_trade.model.TradeHistory;
 import com.mulaczos.blofin_trade.repository.TradeHistoryRepository;
 import lombok.RequiredArgsConstructor;
@@ -150,6 +151,9 @@ public class BlofinIntegrationService {
             sendSms(request, symbol, openResult);
 
             return openResult;
+        } catch (BlofinApiException ex) {
+            log.error("Błąd API BloFin podczas otwierania pozycji [{}]: {}", ex.getApiCode(), ex.getApiMsg());
+            return createErrorResponse("Błąd BloFin API [" + ex.getApiCode() + "]: " + ex.getApiMsg());
         } catch (IOException e) {
             log.error("Błąd podczas otwierania pozycji na BloFin: {}", e.getMessage(), e);
             throw new RuntimeException("Błąd podczas otwierania pozycji na BloFin: " + e.getMessage(), e);

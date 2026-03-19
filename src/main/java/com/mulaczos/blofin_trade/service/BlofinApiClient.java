@@ -3,6 +3,7 @@ package com.mulaczos.blofin_trade.service;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.mulaczos.blofin_trade.exception.BlofinApiException;
 import lombok.extern.slf4j.Slf4j;
 import okhttp3.*;
 import org.apache.commons.codec.binary.Base64;
@@ -300,14 +301,27 @@ public class BlofinApiClient {
     }
 
     private void validateApiResponse(JsonNode response) {
-        if (response.has("code")) {
-            String code = response.get("code").asText();
-            String msg = response.has("msg") ? response.get("msg").asText() : "Unknown error";
+        if (!response.has("code")) return;
 
-            if (!"0".equals(code)) {
-                throw new RuntimeException("BŁĄD API BLOFIN: " + msg + " (kod: " + code + ")");
+        String topCode = response.get("code").asText();
+        if ("0".equals(topCode)) return;
+
+        // Próbuj wyciągnąć szczegóły błędu z pierwszego elementu tablicy data[]
+        String detailCode = topCode;
+        String detailMsg = response.has("msg") ? response.get("msg").asText() : "Unknown error";
+
+        if (response.has("data") && response.get("data").isArray() && response.get("data").size() > 0) {
+            JsonNode first = response.get("data").get(0);
+            if (first.has("code") && !"0".equals(first.get("code").asText())) {
+                detailCode = first.get("code").asText();
+            }
+            if (first.has("msg") && !first.get("msg").asText().isBlank()) {
+                detailMsg = first.get("msg").asText();
             }
         }
+
+        log.error("BloFin API zwrócił błąd: code={}, msg={}", detailCode, detailMsg);
+        throw new BlofinApiException(detailCode, detailMsg);
     }
 
     private JsonNode executeGetRequest(String endpoint, TreeMap<String, String> params,
