@@ -570,40 +570,5 @@ public class BlofinIntegrationService {
         return response;
     }
 
-    /**
-     * Waliduje i przycinает kwotę USDT do zakresu [min, max].
-     * - Jeśli brak kwoty w payloadzie → użyj max
-     * - Jeśli kwota > max → użyj max
-     * - Jeśli kwota < min → użyj min
-     * - Jeśli min <= kwota <= max → użyj kwotę z payloadu
-     * <p>
-     * Kwota to ostateczny Initial Margin do trade'a (nie pomnożony przez leverage!)
-     */
-    private BigDecimal validateAndClampUsdtAmount(BigDecimal payloadAmount) {
-        BigDecimal minAmount = BigDecimal.valueOf(usdAmountForTrade);
-        BigDecimal maxAmount = BigDecimal.valueOf(usdAmountForTrade);
-
-        if (payloadAmount == null) {
-            // Jeśli brak kwoty, użyj średniej z min i max
-            BigDecimal avg = minAmount.add(maxAmount).divide(BigDecimal.valueOf(2), 2, RoundingMode.HALF_UP);
-            log.info("Brak kwoty w payloadzie - używam średnią z min i max: {} USDT", avg);
-            return avg;
-        }
-
-        if (payloadAmount.compareTo(maxAmount) > 0) {
-            log.warn("Kwota z payloadu {} USDT przekracza maximum {} USDT - przycinając do maksimum",
-                    payloadAmount, maxUsdtAmountForTrade);
-            return maxAmount;
-        }
-
-        if (payloadAmount.compareTo(minAmount) < 0) {
-            log.warn("Kwota z payloadu {} USDT poniżej minimum {} USDT - przycinając do minimum",
-                    payloadAmount, minUsdtAmountForTrade);
-            return minAmount;
-        }
-
-        log.info("Kwota z payloadu {} USDT jest w zakresu [{}, {}] - akceptuję", payloadAmount, minUsdtAmountForTrade, maxUsdtAmountForTrade);
-        return payloadAmount;
-    }
 }
 
