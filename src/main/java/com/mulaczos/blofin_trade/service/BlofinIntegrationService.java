@@ -235,7 +235,7 @@ public class BlofinIntegrationService {
     private String prepareAndValidateSymbol(String coin) throws IOException {
         log.info("Szukanie symbolu dla coina: {}", coin);
         String symbol = blofinApiClient.findCorrectSymbol(coin);
-        if (!blofinApiClient.isSymbolSupported("linear", symbol)) {
+        if (!blofinApiClient.isSymbolSupported(symbol)) {
             throw new RuntimeException("Symbol " + symbol + " nie jest obsługiwany na BloFin");
         }
         log.info("Znaleziony i zwalidowany symbol: {}", symbol);
