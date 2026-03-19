@@ -54,45 +54,60 @@ public class LimitOrderTracker {
         order.setLastCheckedAt(LocalDateTime.now());
 
         try {
-            JsonNode orderDetailsResponse = blofinApiClient.getOrderDetails(order.getSymbol(), order.getOrderId());
+            // Pobieramy listę wszystkich aktywnych zleceń, aby sprawdzić czy nasze wciąż tam jest
+            JsonNode openOrdersResponse = blofinApiClient.getOpenOrders(order.getSymbol());
+            boolean orderFoundInOpen = false;
             
-            if (orderDetailsResponse.has("data") && orderDetailsResponse.get("data").isArray() && !orderDetailsResponse.get("data").isEmpty()) {
-                JsonNode orderData = orderDetailsResponse.get("data").get(0);
-                String apiStatus = orderData.has("state") ? orderData.get("state").asText() : "";
-                
-                log.info("Status zlecenia {} na Blofinie: {}", order.getOrderId(), apiStatus);
+            if (openOrdersResponse.has("data") && openOrdersResponse.get("data").isArray()) {
+                for (JsonNode openOrder : openOrdersResponse.get("data")) {
+                    if (openOrder.has("orderId") && openOrder.get("orderId").asText().equals(order.getOrderId())) {
+                        orderFoundInOpen = true;
+                        log.debug("Zlecenie {} wciąż oczekuje (live).", order.getOrderId());
+                        break;
+                    }
+                }
+            }
 
-                if ("filled".equalsIgnoreCase(apiStatus)) {
-                    log.info("Zlecenie {} zostało WYPEŁNIONE. Konfiguruję TP i SL.", order.getOrderId());
-                    order.setStatus("FILLED");
-                    order.setFilledAt(LocalDateTime.now());
-                    
-                    String filledQty = orderData.has("fillSz") ? orderData.get("fillSz").asText() : order.getQuantity();
-                    executeFullPositionConfiguration(order, filledQty);
-                    
-                    twilioNotificationService.sendPositionOpenedNotification(
-                            order.getSymbol(),
-                            order.getSide(),
-                            filledQty,
-                            order.getLeverage(),
-                            "TP/SL Batch"
-                    );
-                } else if ("canceled".equalsIgnoreCase(apiStatus)) {
-                    log.info("Zlecenie {} zostało ANULOWANE. Przerywam proces.", order.getOrderId());
+            if (!orderFoundInOpen) {
+                // Jeśli nie ma go w otwartych, to albo wypełnione, albo anulowane.
+                // Używamy getPositions, aby sprawdzić czy pozycja się pojawiła (Filled)
+                JsonNode positionsResponse = blofinApiClient.getPositions(true);
+                boolean positionFound = false;
+
+                if (positionsResponse.has("data") && positionsResponse.get("data").isArray()) {
+                    String expectedInstId = order.getSymbol().contains("-") ? order.getSymbol() : order.getSymbol().replace("USDT", "-USDT");
+                    for (JsonNode pos : positionsResponse.get("data")) {
+                        String posInstId = pos.has("instId") ? pos.get("instId").asText() : "";
+                        double size = pos.has("positions") ? Math.abs(pos.get("positions").asDouble()) : 0;
+                        
+                        if (posInstId.equals(expectedInstId) && size > 0) {
+                            positionFound = true;
+                            log.info("Zlecenie {} zniknęło z otwartych, ale znaleziono aktywną pozycję. Markujemy jako FILLED.", order.getOrderId());
+                            
+                            order.setStatus("FILLED");
+                            order.setFilledAt(LocalDateTime.now());
+                            
+                            executeFullPositionConfiguration(order, String.valueOf(size));
+                            
+                            twilioNotificationService.sendPositionOpenedNotification(
+                                    order.getSymbol(),
+                                    order.getSide(),
+                                    String.valueOf(size),
+                                    order.getLeverage(),
+                                    "TP/SL Batch (Fallback)"
+                            );
+                            break;
+                        }
+                    }
+                }
+
+                if (!positionFound) {
+                    log.info("Zlecenie {} zniknęło z otwartych i nie ma aktywnej pozycji. Markujemy jako ABORTED (Canceled/Expired).", order.getOrderId());
                     order.setStatus("ABORTED");
                 }
-            } else {
-                log.warn("Nie znaleziono szczegółów dla zlecenia {} na giełdzie. Możliwe, że wygasło lub nie istnieje.", order.getOrderId());
-                order.setStatus("ABORTED");
             }
-        } catch (com.mulaczos.blofin_trade.exception.BlofinApiException e) {
-            // Jeśli API rzuca błąd, że nie ma takiego zlecenia
-            if ("32050".equals(e.getApiCode()) || "order_not_found".equalsIgnoreCase(e.getApiMsg())) {
-                log.warn("Zlecenie {} nie istnieje na Blofinie (błąd API). Przerywam tracking.", order.getOrderId());
-                order.setStatus("ABORTED");
-            } else {
-                throw e; // Rzuć dalej, jeśli to inny błąd (np. network/auth), żeby spróbować ponownie w następnym cyklu
-            }
+        } catch (Exception e) {
+            log.error("Błąd podczas sprawdzania statusu zlecenia {} (fallback mode): {}", order.getOrderId(), e.getMessage());
         }
     }
 

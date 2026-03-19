@@ -43,6 +43,7 @@ public class BlofinApiClient {
 
     private static final String POSITIONS_ENDPOINT = "/api/v1/account/positions";
     private static final String WALLET_BALANCE_ENDPOINT = "/api/v1/account/balance";
+    private static final String OPEN_ORDERS_ENDPOINT = "/api/v1/trade/orders-pending";
     private static final String SET_LEVERAGE_ENDPOINT = "/api/v1/account/set-leverage";
     private static final String PLACE_ORDER_ENDPOINT = "/api/v1/trade/order";
     private static final String ORDER_DETAILS_ENDPOINT = "/api/v1/trade/order-details";
@@ -265,6 +266,13 @@ public class BlofinApiClient {
         params.put("instId", instId);
         params.put("orderId", orderId);
         return executeGetRequest(ORDER_DETAILS_ENDPOINT, params, false);
+    }
+
+    public JsonNode getOpenOrders(String symbol) {
+        String instId = toInstId(symbol);
+        TreeMap<String, String> params = new TreeMap<>();
+        params.put("instId", instId);
+        return executeGetRequest(OPEN_ORDERS_ENDPOINT, params, true);
     }
 
     public JsonNode placeBatchOrders(List<Map<String, String>> orders) {
