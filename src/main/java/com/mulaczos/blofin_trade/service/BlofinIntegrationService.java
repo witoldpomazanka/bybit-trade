@@ -588,27 +588,25 @@ public class BlofinIntegrationService {
         BigDecimal minAmount = BigDecimal.valueOf(minUsdtAmountForTrade);
         BigDecimal maxAmount = BigDecimal.valueOf(maxUsdtAmountForTrade);
 
-        // Jeśli brak kwoty, użyj max
         if (payloadAmount == null) {
-            log.info("Brak kwoty w payloadzie - używam maksymalną wartość: {} USDT", maxUsdtAmountForTrade);
-            return maxAmount;
+            // Jeśli brak kwoty, użyj średniej z min i max
+            BigDecimal avg = minAmount.add(maxAmount).divide(BigDecimal.valueOf(2), 2, RoundingMode.HALF_UP);
+            log.info("Brak kwoty w payloadzie - używam średnią z min i max: {} USDT", avg);
+            return avg;
         }
 
-        // Jeśli kwota > max, użyj max
         if (payloadAmount.compareTo(maxAmount) > 0) {
             log.warn("Kwota z payloadu {} USDT przekracza maximum {} USDT - przycinając do maksimum",
                     payloadAmount, maxUsdtAmountForTrade);
             return maxAmount;
         }
 
-        // Jeśli kwota < min, użyj min
         if (payloadAmount.compareTo(minAmount) < 0) {
             log.warn("Kwota z payloadu {} USDT poniżej minimum {} USDT - przycinając do minimum",
                     payloadAmount, minUsdtAmountForTrade);
             return minAmount;
         }
 
-        // Kwota w zakresie [min, max], użyj ją
         log.info("Kwota z payloadu {} USDT jest w zakresu [{}, {}] - akceptuję", payloadAmount, minUsdtAmountForTrade, maxUsdtAmountForTrade);
         return payloadAmount;
     }
