@@ -98,15 +98,40 @@ public class BlofinIntegrationService {
 
     private JsonNode validatePositionNotAlreadyOpen(String symbol, String chatTitle) {
         log.info("validatePositionNotAlreadyOpen dla symbol: {}, chat: {}", symbol, chatTitle);
+
+        // Zawsze weryfikujemy rzeczywisty stan pozycji przez API (source of truth)
+        log.info("Odpytuję API o aktualnie otwarte pozycje dla symbolu: {}", symbol);
+        JsonNode apiCheck = checkIfThePositionForSymbolIsAlreadyOpened(symbol);
+
         if (chatTitle != null) {
             Optional<TradeHistory> existingTrade = tradeHistoryRepository.findFirstBySymbolAndChatTitleOrderByCreatedAtDesc(symbol, chatTitle);
             if (existingTrade.isPresent()) {
-                log.warn("Znaleziono istniejącą pozycję dla symbolu {} z czatu {} - pomijam otwieranie nowej pozycji", symbol, chatTitle);
-                return createErrorResponse("Dla symbolu " + symbol + " z czatu " + chatTitle + " istnieje już otwarta pozycja.");
+                TradeHistory trade = existingTrade.get();
+                log.info("Znaleziono wpis w historii DB dla symbolu {} z czatu {} (id: {}, createdAt: {}, side: {})",
+                        symbol, chatTitle, trade.getId(), trade.getCreatedAt(), trade.getSide());
+                if (apiCheck != null) {
+                    log.warn("API potwierdziło otwartą pozycję dla {} z czatu {} - blokuję otwarcie nowej pozycji", symbol, chatTitle);
+                    return createErrorResponse("Dla symbolu " + symbol + " z czatu " + chatTitle + " istnieje już otwarta pozycja (potwierdzone przez API).");
+                } else {
+                    log.info("API NIE znalazło otwartej pozycji dla {} - wpis w DB pochodzi prawdopodobnie z zamkniętej pozycji. Zezwalam na otwarcie nowej.", symbol);
+                }
+            } else {
+                log.info("Brak wpisu w historii DB dla symbolu {} z czatu {} - kontynuuję weryfikację API", symbol, chatTitle);
+                if (apiCheck != null) {
+                    log.warn("API wykryło otwartą pozycję dla {} mimo braku wpisu w DB - blokuję", symbol);
+                    return apiCheck;
+                }
+            }
+        } else {
+            log.info("chatTitle jest null - pomijam sprawdzanie historii DB, opieram się wyłącznie na odpowiedzi API");
+            if (apiCheck != null) {
+                log.warn("API wykryło otwartą pozycję dla {} - blokuję otwarcie nowej pozycji", symbol);
+                return apiCheck;
             }
         }
 
-        return checkIfThePositionForSymbolIsAlreadyOpened(symbol);
+        log.info("Walidacja przeszła pomyślnie - brak otwartej pozycji dla {} (ani w API, ani w DB)", symbol);
+        return null;
     }
 
     private JsonNode handleLimitOrder(AdvancedMarketPositionRequest request, String symbol, String chatTitle, BigDecimal initialMargin, BigDecimal totalPositionValue) throws IOException {
