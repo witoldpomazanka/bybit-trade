@@ -10,9 +10,9 @@ import java.util.Map;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.math.RoundingMode;
+import java.io.IOException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -70,8 +70,8 @@ public class LimitOrderTracker {
                     
                     executeFullPositionConfiguration(order, filledQty);
                     
-                    // Wartość USDT dla SMS
-                    BigDecimal filledValue = new BigDecimal(filledQty).multiply(new BigDecimal(order.getEntryPrice()));
+                    // Wartość USDT dla SMS - uwzględniamy Contract Value
+                    BigDecimal filledValue = calculateUsdtValue(order.getSymbol(), new BigDecimal(filledQty), new BigDecimal(order.getEntryPrice()));
                     
                     twilioNotificationService.sendPositionOpenedNotification(
                             order.getSymbol(),
@@ -80,7 +80,7 @@ public class LimitOrderTracker {
                             order.getLeverage(),
                             "Limit (Filled)",
                             order.getEntryPrice(),
-                            filledValue.toString()
+                            filledValue.toPlainString()
                     );
                 } else if ("canceled".equalsIgnoreCase(state)) {
                     log.info("Zlecenie {} zostało anulowane na giełdzie. Markujemy jako ABORTED.", order.getOrderId());
@@ -117,7 +117,7 @@ public class LimitOrderTracker {
                         String sizeStr = String.valueOf(size);
                         executeFullPositionConfiguration(order, sizeStr);
                         
-                        BigDecimal filledValue = BigDecimal.valueOf(size).multiply(new BigDecimal(order.getEntryPrice()));
+                        BigDecimal filledValue = calculateUsdtValue(order.getSymbol(), BigDecimal.valueOf(size), new BigDecimal(order.getEntryPrice()));
                         twilioNotificationService.sendPositionOpenedNotification(
                                 order.getSymbol(),
                                 order.getSide(),
@@ -125,7 +125,7 @@ public class LimitOrderTracker {
                                 order.getLeverage(),
                                 "Limit (Fallback)",
                                 order.getEntryPrice(),
-                                filledValue.toString()
+                                filledValue.toPlainString()
                         );
                         return;
                     }
@@ -208,6 +208,16 @@ public class LimitOrderTracker {
             order.setStatus("PROCESSED_TP_SL");
         } catch (Exception e) {
             log.error("Błąd podczas konfiguracji TP/SL dla zlecenia {}: {}", order.getOrderId(), e.getMessage(), e);
+        }
+    }
+
+    private BigDecimal calculateUsdtValue(String symbol, BigDecimal quantity, BigDecimal price) {
+        try {
+            BigDecimal ctVal = blofinIntegrationService.getContractValue(symbol);
+            return quantity.multiply(ctVal).multiply(price);
+        } catch (IOException e) {
+            log.warn("Nie udało się pobrać ctVal dla {}, liczę bez (1:1): {}", symbol, e.getMessage());
+            return quantity.multiply(price);
         }
     }
 }
