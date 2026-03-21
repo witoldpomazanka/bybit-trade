@@ -51,56 +51,70 @@ public class LimitOrderTracker {
         order.setLastCheckedAt(LocalDateTime.now());
 
         try {
-            // Pobieramy szczegóły zlecenia, aby sprawdzić jego realny status
-            JsonNode orderDetailsResponse = blofinApiClient.getOrderDetails(order.getSymbol(), order.getOrderId());
-            
-            if (orderDetailsResponse.has("data") && orderDetailsResponse.get("data").isArray() 
-                    && !orderDetailsResponse.get("data").isEmpty()) {
-                
-                JsonNode orderData = orderDetailsResponse.get("data").get(0);
-                String state = orderData.has("state") ? orderData.get("state").asText() : "";
-                String filledQty = orderData.has("filledQty") ? orderData.get("filledQty").asText() : "0";
-
-                log.info("Status zlecenia {} na giełdzie: {}, wypełniono: {}", order.getOrderId(), state, filledQty);
-
-                if ("filled".equalsIgnoreCase(state)) {
-                    log.info("Zlecenie {} zostało wypełnione. Rozpoczynam konfigurację TP/SL.", order.getOrderId());
-                    order.setStatus("FILLED");
-                    order.setFilledAt(LocalDateTime.now());
-                    
-                    executeFullPositionConfiguration(order, filledQty);
-                    
-                    // Wartość USDT dla SMS - uwzględniamy Contract Value
-                    BigDecimal filledValue = calculateUsdtValue(order.getSymbol(), new BigDecimal(filledQty), new BigDecimal(order.getEntryPrice()));
-                    
-                    twilioNotificationService.sendPositionOpenedNotification(
-                            order.getSymbol(),
-                            order.getSide(),
-                            filledQty,
-                            order.getLeverage(),
-                            "Limit (Filled)",
-                            order.getEntryPrice(),
-                            filledValue.toPlainString()
-                    );
-                } else if ("canceled".equalsIgnoreCase(state)) {
-                    log.info("Zlecenie {} zostało anulowane na giełdzie. Markujemy jako ABORTED.", order.getOrderId());
-                    order.setStatus("ABORTED");
-                } else {
-                    log.info("Zlecenie {} wciąż oczekuje (status: {}).", order.getOrderId(), state);
+            // 1. Sprawdźmy wpierw open orders (oczekujące)
+            JsonNode openOrdersResponse = blofinApiClient.getOpenOrders(order.getSymbol());
+            if (openOrdersResponse.has("data") && openOrdersResponse.get("data").isArray()) {
+                for (JsonNode o : openOrdersResponse.get("data")) {
+                    if (o.has("orderId") && o.get("orderId").asText().equals(order.getOrderId())) {
+                        log.info("Zlecenie {} wciąż oczekuje w książce (status: live/pending).", order.getOrderId());
+                        return; // Oczekuje, nie robimy nic
+                    }
                 }
-            } else {
-                // Jeśli nie ma danych o zleceniu, może to być błąd API lub zlecenie wygasło
-                log.warn("Brak danych w odpowiedzi dla zlecenia {}. Sprawdzam pozycje jako fallback.", order.getOrderId());
-                checkStatusByPositionsFallback(order);
             }
+
+            boolean detailsChecked = false;
+            try {
+                // 2. Jeśli nie ma w oczekujących, sprawdźmy szczegóły zlecenia (może rzucać błąd 152404)
+                JsonNode orderDetailsResponse = blofinApiClient.getOrderDetails(order.getSymbol(), order.getOrderId());
+                
+                if (orderDetailsResponse.has("data") && orderDetailsResponse.get("data").isArray() 
+                        && !orderDetailsResponse.get("data").isEmpty()) {
+                    
+                    detailsChecked = true;
+                    JsonNode orderData = orderDetailsResponse.get("data").get(0);
+                    String state = orderData.has("state") ? orderData.get("state").asText() : "";
+                    String filledQty = orderData.has("filledQty") ? orderData.get("filledQty").asText() : "0";
+
+                    log.info("Status zlecenia {} na giełdzie: {}, wypełniono: {}", order.getOrderId(), state, filledQty);
+
+                    if ("filled".equalsIgnoreCase(state)) {
+                        log.info("Zlecenie {} zostało wypełnione. Rozpoczynam konfigurację TP/SL.", order.getOrderId());
+                        order.setStatus("FILLED");
+                        order.setFilledAt(LocalDateTime.now());
+                        
+                        executeFullPositionConfiguration(order, filledQty);
+                        
+                        BigDecimal filledValue = calculateUsdtValue(order.getSymbol(), new BigDecimal(filledQty), new BigDecimal(order.getEntryPrice()));
+                        
+                        twilioNotificationService.sendPositionOpenedNotification(
+                                order.getSymbol(),
+                                order.getSide(),
+                                filledQty,
+                                order.getLeverage(),
+                                "Limit (Filled)",
+                                order.getEntryPrice(),
+                                filledValue.toPlainString()
+                        );
+                    } else if ("canceled".equalsIgnoreCase(state)) {
+                        log.info("Zlecenie {} zostało anulowane na giełdzie. Markujemy jako ABORTED.", order.getOrderId());
+                        order.setStatus("ABORTED");
+                    } else {
+                        log.info("Zlecenie {} wciąż oczekuje (status: {}).", order.getOrderId(), state);
+                    }
+                    return;
+                }
+            } catch (Exception ex) {
+                log.warn("Błąd {} podczas sprawdzania API getOrderDetails dla zlecenia {}. Przechodzę do fallbacku (getPositions).", ex.getMessage(), order.getOrderId());
+            }
+
+            // 3. FALLBACK - jeśli order-details zawiodło lub nic nie zwróciło
+            checkStatusByPositionsFallback(order, detailsChecked);
         } catch (Exception e) {
-            log.error("Błąd podczas sprawdzania statusu zlecenia {}: {}", order.getOrderId(), e.getMessage());
-            // W przypadku błędu API (np. 152404), próbujemy sprawdzić pozycje
-            checkStatusByPositionsFallback(order);
+            log.error("Nieoczekiwany błąd podczas weryfikacji zlecenia {}: {}", order.getOrderId(), e.getMessage());
         }
     }
 
-    private void checkStatusByPositionsFallback(LimitOrder order) {
+    private void checkStatusByPositionsFallback(LimitOrder order, boolean detailsChecked) {
         try {
             JsonNode positionsResponse = blofinApiClient.getPositions(true);
             if (positionsResponse.has("data") && positionsResponse.get("data").isArray()) {
@@ -131,8 +145,10 @@ public class LimitOrderTracker {
                     }
                 }
             }
-            log.info("Zlecenie {} nie zostało odnalezione w pozycjach. Markujemy jako ABORTED (Canceled/Expired).", order.getOrderId());
-            order.setStatus("ABORTED");
+            if (!detailsChecked) {
+                log.info("Zlecenie {} nie zostało odnalezione w pozycjach ani oczekujących. Markujemy jako ABORTED (Canceled/Expired).", order.getOrderId());
+                order.setStatus("ABORTED");
+            }
         } catch (Exception e) {
             log.error("Błąd w fallbacku dla zlecenia {}: {}", order.getOrderId(), e.getMessage());
         }
