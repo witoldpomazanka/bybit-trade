@@ -32,7 +32,6 @@ import java.util.Optional;
 public class BlofinIntegrationService {
 
     private static final int DEFAULT_LEVERAGE = 10;
-    private static int CURRENT_LEVERAGE = DEFAULT_LEVERAGE;
     private static final double DEFAULT_TP = 0.05;
 
     @Value("${usd-amount-for-trade:10.0}")
@@ -92,11 +91,15 @@ public class BlofinIntegrationService {
 
             setLeverageForSymbol(symbol, request.getLeverage());
 
+            // Docelowa wartość pozycji (Initial Margin x Leverage)
+            // Initial Margin jest brany zawsze z usdAmountForTrade (property)
+            BigDecimal initialMargin = BigDecimal.valueOf(usdAmountForTrade);
+            BigDecimal totalPositionValue = initialMargin.multiply(BigDecimal.valueOf(request.getLeverage()));
+
             if (request.isLimit()) {
                 log.info("Wykryto zlecenie limit - specjalna obsługa");
-
-                BigDecimal totalPositionValue = BigDecimal.valueOf(usdAmountForTrade);
-                log.info("Docelowa wartość pozycji (Total Position Value): {} USDT", totalPositionValue);
+                log.info("Docelowa wartość pozycji (Total Position Value): {} USDT (Initial Margin: {} USDT x Leverage: {}x)", 
+                        totalPositionValue, initialMargin, request.getLeverage());
 
                 BigDecimal quantityInCrypto = calculatePositionSize(
                         symbol,
@@ -123,7 +126,8 @@ public class BlofinIntegrationService {
 
                 saveTradeHistory(symbol, request, quantityInCrypto.toString(), chatTitle, orderType, orderPrice, finalValueUsdt.toString());
 
-                if (openResult.has("data") && openResult.get("data").isArray()
+                if (openResult.has("code") && "0".equals(openResult.get("code").asText())
+                        && openResult.has("data") && openResult.get("data").isArray()
                         && !openResult.get("data").isEmpty()
                         && openResult.get("data").get(0).has("orderId")) {
                     String orderId = openResult.get("data").get(0).get("orderId").asText();
@@ -135,37 +139,58 @@ public class BlofinIntegrationService {
                 return openResult;
             }
 
-            JsonNode openResult = openPosition(symbol, request);
+            // Dla Market order:
+            log.info("Rozpoczynam przygotowanie pozycji Market");
+            log.info("Pobieranie aktualnej ceny rynkowej dla {}", symbol);
+            double currentPrice = blofinApiClient.getMarketPrice("linear", symbol);
+            BigDecimal price = BigDecimal.valueOf(currentPrice);
+            log.info("Aktualna cena rynkowa dla {}: {}", symbol, price);
+
+            log.info("=== OBLICZANIE POZYCJI ===");
+            log.info("Initial Margin (Twoja kwota wejścia z property): {} USDT", initialMargin);
+            log.info("Leverage: {}x", request.getLeverage());
+            log.info("Total Position Value (wartość pozycji na giełdzie): {} USDT", totalPositionValue);
+            log.info("Cena entrada: {} USDT", price);
+
+            BigDecimal quantityInCrypto = calculatePositionSize(symbol, price, totalPositionValue);
+            log.info("Obliczona wielkość pozycji: {} (wartość: {} USDT)", quantityInCrypto, quantityInCrypto.multiply(price));
+
+            String orderType = "Market";
+            log.info("Parametry zlecenia - symbol: {}, side: {}, typ: {}, qty: {}, stopLoss: {}, dźwignia: {}x",
+                    symbol, request.getSide(), orderType, quantityInCrypto, request.getStopLoss(), request.getLeverage());
+
+            JsonNode openResult = blofinApiClient.openPosition(
+                    symbol,
+                    request.getSide(),
+                    orderType,
+                    quantityInCrypto.toString(),
+                    null,
+                    null,
+                    request.getStopLoss()
+            );
 
             String executedQty = openResult.has("data") && openResult.get("data").isArray()
                     && !openResult.get("data").isEmpty()
                     && openResult.get("data").get(0).has("qty")
                     ? openResult.get("data").get(0).get("qty").asText()
-                    : "unknown";
+                    : quantityInCrypto.toString();
             
-            // Dla market order cena jest pobierana wewnątrz openPosition, ale nie mamy jej łatwo dostępnej tutaj.
-            // Spróbujmy wyciągnąć avgPrice z odpowiedzi lub pobierzmy aktualną cenę jako przybliżenie.
             String avgPrice = openResult.has("data") && openResult.get("data").isArray()
                     && !openResult.get("data").isEmpty()
                     && openResult.get("data").get(0).has("avgPrice")
                     ? openResult.get("data").get(0).get("avgPrice").asText()
-                    : null;
+                    : price.toString();
 
-            String calculatedValue = null;
-            if (avgPrice != null && !executedQty.equals("unknown")) {
-                calculatedValue = new BigDecimal(avgPrice).multiply(new BigDecimal(executedQty)).toString();
-            }
+            String finalUsdtValue = new BigDecimal(avgPrice).multiply(new BigDecimal(executedQty)).toString();
 
-            saveTradeHistory(symbol, request, executedQty, chatTitle, "Market", avgPrice, calculatedValue);
+            saveTradeHistory(symbol, request, executedQty, chatTitle, "Market", avgPrice, finalUsdtValue);
 
             if (shouldConfigurePartialTakeProfits(request)) {
                 configurePartialTakeProfits(symbol, request);
-            } else {
-                log.info("Pominięto konfigurację partial take-profits - nie są wymagane");
             }
-            log.info("Zakończono otwieranie pozycji z sukcesem");
 
-            sendSms(request, symbol, openResult, avgPrice, calculatedValue);
+            log.info("Zakończono otwieranie pozycji z sukcesem");
+            sendSms(request, symbol, openResult, avgPrice, finalUsdtValue);
 
             return openResult;
         } catch (BlofinApiException ex) {
@@ -189,7 +214,7 @@ public class BlofinIntegrationService {
                 .chatTitle(chatTitle)
                 .createdAt(LocalDateTime.now())
                 .orderType(orderType)
-                .usdtAmount(finalUsdtAmount != null ? finalUsdtAmount : (request.getUsdtAmount() != null ? request.getUsdtAmount().toString() : null))
+                .usdtAmount(finalUsdtAmount)
                 .build();
 
         tradeHistoryRepository.save(tradeHistory);
@@ -263,50 +288,6 @@ public class BlofinIntegrationService {
     private void setLeverageForSymbol(String symbol, int leverage) {
         log.info("Ustawianie dźwigni {}x dla symbolu {}", leverage, symbol);
         blofinApiClient.setLeverage(symbol, String.valueOf(leverage));
-        CURRENT_LEVERAGE = leverage;
-    }
-
-    private JsonNode openPosition(String symbol, AdvancedMarketPositionRequest request) throws IOException {
-        log.info("Rozpoczynam przygotowanie pozycji Market");
-
-        log.info("Pobieranie aktualnej ceny rynkowej dla {}", symbol);
-        double currentPrice = blofinApiClient.getMarketPrice("linear", symbol);
-        BigDecimal price = BigDecimal.valueOf(currentPrice);
-        log.info("Aktualna cena rynkowa dla {}: {}", symbol, price);
-
-        // Docelowa kwota z nowej zmiennej USD_AMOUNT_FOR_TRADE (całkowita wartość pozycji po lewarze)
-        BigDecimal totalPositionValue = BigDecimal.valueOf(usdAmountForTrade).multiply(BigDecimal.valueOf(request.getLeverage()));
-
-        log.info("=== OBLICZANIE POZYCJI ===");
-        log.info("Initial Margin (Twoja kwota wejścia): {} USDT", usdAmountForTrade);
-        log.info("Leverage: {}x", request.getLeverage());
-        log.info("Total Position Value (wartość pozycji na giełdzie): {} USDT", totalPositionValue);
-        log.info("Cena entrada: {} USDT", price);
-
-        BigDecimal quantityInCrypto = calculatePositionSize(symbol, price, totalPositionValue);
-        log.info("Obliczona wielkość pozycji: {} (wartość: {} USDT)", quantityInCrypto, quantityInCrypto.multiply(price));
-
-        String orderType = request.isLimit() ? "Limit" : "Market";
-        String orderPrice = request.isLimit() ? request.getEntryPrice() : null;
-
-        log.info("Parametry zlecenia - symbol: {}, side: {}, typ: {}, cena: {}, qty: {}, takeProfit: {}, stopLoss: {}, dźwignia: {}x",
-                symbol, request.getSide(), orderType, orderPrice, quantityInCrypto, request.getTakeProfit(), request.getStopLoss(), request.getLeverage());
-
-        // Wyliczenie rzeczywistego marginesu, który będzie wymagany
-        BigDecimal requiredMargin = quantityInCrypto.multiply(price)
-                .divide(BigDecimal.valueOf(request.getLeverage()), 8, RoundingMode.HALF_UP);
-
-        log.info("⚠️  WYMAGANY MARGINES (Initial Margin): {} USDT", requiredMargin);
-
-        return blofinApiClient.openPosition(
-                symbol,
-                request.getSide(),
-                orderType,
-                quantityInCrypto.toString(),
-                orderPrice,
-                request.getTakeProfit(),
-                request.getStopLoss()
-        );
     }
 
     private boolean shouldConfigurePartialTakeProfits(AdvancedMarketPositionRequest request) {
@@ -316,7 +297,7 @@ public class BlofinIntegrationService {
     private void configurePartialTakeProfits(String symbol, AdvancedMarketPositionRequest request) throws IOException {
         log.info("Rozpoczynam konfigurację partial take-profits");
 
-        double totalQty = getOpenedPositionQty(symbol, "linear");
+        double totalQty = getOpenedPositionQty(symbol);
         Map<Integer, String> partialTps = request.getPartialTakeProfits();
         int tpCount = partialTps.size();
 
@@ -386,7 +367,7 @@ public class BlofinIntegrationService {
     public BigDecimal getMinOrderValue(String symbol) throws IOException {
         JsonNode instrumentInfo = blofinApiClient.getInstrumentsInfo(symbol);
         if (instrumentInfo.has("data") && instrumentInfo.get("data").isArray()
-                && instrumentInfo.get("data").size() > 0) {
+                && !instrumentInfo.get("data").isEmpty()) {
             JsonNode instrument = instrumentInfo.get("data").get(0);
             if (instrument.has("minSize") && instrument.has("tickSize")) {
                 BigDecimal minSize = new BigDecimal(instrument.get("minSize").asText());
@@ -431,7 +412,7 @@ public class BlofinIntegrationService {
         return quantity;
     }
 
-    private double getOpenedPositionQty(String symbol, String category) {
+    private double getOpenedPositionQty(String symbol) {
         try {
             JsonNode positions = blofinApiClient.getPositions(false);
             if (positions.has("data") && positions.get("data").isArray()) {
@@ -465,7 +446,7 @@ public class BlofinIntegrationService {
     public BigDecimal getMinimumOrderQuantity(String symbol) throws IOException {
         JsonNode instrumentInfo = blofinApiClient.getInstrumentsInfo(symbol);
         if (instrumentInfo.has("data") && instrumentInfo.get("data").isArray()
-                && instrumentInfo.get("data").size() > 0) {
+                && !instrumentInfo.get("data").isEmpty()) {
             JsonNode instrument = instrumentInfo.get("data").get(0);
             if (instrument.has("minSize")) {
                 return new BigDecimal(instrument.get("minSize").asText());
@@ -477,7 +458,7 @@ public class BlofinIntegrationService {
     public BigDecimal getQuantityStep(String symbol) throws IOException {
         JsonNode instrumentInfo = blofinApiClient.getInstrumentsInfo(symbol);
         if (instrumentInfo.has("data") && instrumentInfo.get("data").isArray()
-                && instrumentInfo.get("data").size() > 0) {
+                && !instrumentInfo.get("data").isEmpty()) {
             JsonNode instrument = instrumentInfo.get("data").get(0);
             if (instrument.has("lotSize")) {
                 return new BigDecimal(instrument.get("lotSize").asText());
@@ -524,7 +505,9 @@ public class BlofinIntegrationService {
             log.info("Zmiana dźwigni z domyślnej {}x na {}x dla {}", DEFAULT_LEVERAGE, request.getLeverage(), symbol);
             setLeverageForSymbol(symbol, request.getLeverage());
         }
-        double quantity = (request.getUsdtAmount() * request.getLeverage()) / request.getUsdtPrice();
+        
+        // Używamy usdAmountForTrade z właściwości zamiast z requestu
+        double quantity = (usdAmountForTrade * request.getLeverage()) / request.getUsdtPrice();
         BigDecimal rounded = new BigDecimal(quantity).setScale(3, RoundingMode.HALF_UP);
         quantity = rounded.doubleValue();
 
@@ -543,12 +526,12 @@ public class BlofinIntegrationService {
         String finalValue = String.valueOf(quantity * request.getUsdtPrice());
 
         var trailingStopValue = String.valueOf(retracementPrice / retracementDivider);
-        blofinApiClient.setTrailingStop(symbol, trailingStopValue);
+        log.warn("BloFin nie obsługuje trailing stop przez REST API v1. Pomijam ustawianie trailing stop: {}", trailingStopValue);
 
         sendScalpSms(request, symbol, quantity, finalValue);
 
         String orderId = orderResponse.has("data") && orderResponse.get("data").isArray()
-                && orderResponse.get("data").size() > 0
+                && !orderResponse.get("data").isEmpty()
                 && orderResponse.get("data").get(0).has("orderId")
                 ? orderResponse.get("data").get(0).get("orderId").asText()
                 : "unknown";

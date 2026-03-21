@@ -26,9 +26,6 @@ public class AdvancedMarketPositionRequest {
     @Pattern(regexp = "^(LONG|SHORT)$", message = "Type musi być LONG lub SHORT")
     private String type;
 
-    @DecimalMin(value = "0", message = "UsdtAmount musi być większe lub równe 0")
-    private BigDecimal usdtAmount;
-
     private String stopLoss;
     private String takeProfit;
 
@@ -49,10 +46,6 @@ public class AdvancedMarketPositionRequest {
                     .coin(payload.get("coin").toString().toUpperCase())
                     .leverage(Integer.parseInt(payload.get("leverage").toString()))
                     .type(payload.get("type").toString().toUpperCase());
-
-            if (payload.containsKey("usdtAmount") && payload.get("usdtAmount") != null) {
-                builder.usdtAmount(new BigDecimal(payload.get("usdtAmount").toString()));
-            }
 
             if (payload.containsKey("stopLoss") && payload.get("stopLoss") != null) {
                 builder.stopLoss(payload.get("stopLoss").toString());
@@ -105,4 +98,3 @@ public class AdvancedMarketPositionRequest {
         return "Limit".equalsIgnoreCase(orderType);
     }
 }
-
