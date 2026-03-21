@@ -4,8 +4,6 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.mulaczos.blofin_trade.dto.AdvancedMarketPositionRequest;
-import com.mulaczos.blofin_trade.dto.ScalpRequestDto;
-import com.mulaczos.blofin_trade.dto.TradingResponseDto;
 import com.mulaczos.blofin_trade.exception.BlofinApiException;
 import com.mulaczos.blofin_trade.model.TradeHistory;
 import com.mulaczos.blofin_trade.repository.TradeHistoryRepository;
@@ -32,13 +30,9 @@ import java.util.Optional;
 public class BlofinIntegrationService {
 
     private static final int DEFAULT_LEVERAGE = 10;
-    private static final double DEFAULT_TP = 0.05;
 
     @Value("${usd-amount-for-trade:10.0}")
     private Double usdAmountForTrade;
-
-    @Value("${retracement.divider:2}")
-    private Double retracementDivider;
 
     private final BlofinApiClient blofinApiClient;
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -57,13 +51,6 @@ public class BlofinIntegrationService {
         log.info("Pobieranie otwartych pozycji z BloFin");
         JsonNode result = blofinApiClient.getPositions(false);
         log.info("Pobrano dane o otwartych pozycjach: {}", result);
-        return result;
-    }
-
-    public JsonNode getAccountBalance() {
-        log.info("Pobieranie salda konta z BloFin");
-        JsonNode result = blofinApiClient.getWalletBalance();
-        log.info("Pobrano dane o saldzie konta: {}", result);
         return result;
     }
 
@@ -497,71 +484,10 @@ public class BlofinIntegrationService {
         return withoutUSDT;
     }
 
-    public TradingResponseDto openScalpShortPosition(ScalpRequestDto request) {
-        log.info("Opening scalp position for request: {}", request);
-
-        String symbol = request.getCoin() + "USDT";
-        if (request.getLeverage() != DEFAULT_LEVERAGE) {
-            log.info("Zmiana dźwigni z domyślnej {}x na {}x dla {}", DEFAULT_LEVERAGE, request.getLeverage(), symbol);
-            setLeverageForSymbol(symbol, request.getLeverage());
-        }
-        
-        // Używamy usdAmountForTrade z właściwości zamiast z requestu
-        double quantity = (usdAmountForTrade * request.getLeverage()) / request.getUsdtPrice();
-        BigDecimal rounded = new BigDecimal(quantity).setScale(3, RoundingMode.HALF_UP);
-        quantity = rounded.doubleValue();
-
-        double retracementPrice = request.getUsdtPrice() * (DEFAULT_TP / request.getLeverage());
-        double takeProfit = request.getUsdtPrice() - retracementPrice;
-        JsonNode orderResponse = blofinApiClient.openPosition(
-                symbol,
-                "Sell",
-                "Market",
-                String.valueOf(quantity),
-                null,
-                String.valueOf(takeProfit),
-                null
-        );
-
-        String finalValue = String.valueOf(quantity * request.getUsdtPrice());
-
-        var trailingStopValue = String.valueOf(retracementPrice / retracementDivider);
-        log.warn("BloFin nie obsługuje trailing stop przez REST API v1. Pomijam ustawianie trailing stop: {}", trailingStopValue);
-
-        sendScalpSms(request, symbol, quantity, finalValue);
-
-        String orderId = orderResponse.has("data") && orderResponse.get("data").isArray()
-                && !orderResponse.get("data").isEmpty()
-                && orderResponse.get("data").get(0).has("orderId")
-                ? orderResponse.get("data").get(0).get("orderId").asText()
-                : "unknown";
-
-        return TradingResponseDto.builder()
-                .orderId(orderId)
-                .symbol(symbol)
-                .side("Sell")
-                .status("SUBMITTED")
-                .quantity(quantity)
-                .build();
-    }
-
-    private void sendScalpSms(ScalpRequestDto request, String symbol, double quantity, String finalValue) {
-        twilioNotificationService.sendPositionOpenedNotification(
-                symbol,
-                "Sell",
-                String.valueOf(quantity),
-                request.getLeverage(),
-                "Market",
-                String.valueOf(request.getUsdtPrice()),
-                finalValue
-        );
-    }
-
     private JsonNode createErrorResponse(String errorMessage) {
         ObjectNode response = objectMapper.createObjectNode();
         response.put("BŁĄD", errorMessage);
         return response;
     }
-
 }
 

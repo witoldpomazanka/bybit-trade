@@ -1,10 +1,13 @@
 package com.mulaczos.blofin_trade.exception;
 
+import lombok.Getter;
+
 /**
  * Wyjątek reprezentujący błąd biznesowy zwrócony przez API BloFin
  * (np. niewystarczający margin, niepoprawny symbol itp.).
  * Odróżnia go od RuntimeException – pozwala handler-owi na zwrot 422 zamiast 500.
  */
+@Getter
 public class BlofinApiException extends RuntimeException {
 
     private final String apiCode;
@@ -16,11 +19,4 @@ public class BlofinApiException extends RuntimeException {
         this.apiMsg = apiMsg;
     }
 
-    public String getApiCode() {
-        return apiCode;
-    }
-
-    public String getApiMsg() {
-        return apiMsg;
-    }
 }

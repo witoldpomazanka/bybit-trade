@@ -42,7 +42,6 @@ public class BlofinApiClient {
     private static final String ORDER_BOOK_ENDPOINT = "/api/v1/market/books";
 
     private static final String POSITIONS_ENDPOINT = "/api/v1/account/positions";
-    private static final String WALLET_BALANCE_ENDPOINT = "/api/v1/account/balance";
     private static final String OPEN_ORDERS_ENDPOINT = "/api/v1/trade/orders-pending";
     private static final String SET_LEVERAGE_ENDPOINT = "/api/v1/account/set-leverage";
     private static final String PLACE_ORDER_ENDPOINT = "/api/v1/trade/order";
@@ -73,11 +72,6 @@ public class BlofinApiClient {
     public JsonNode getPositions(boolean omitLoggingResponse) {
         TreeMap<String, String> params = new TreeMap<>();
         return executeGetRequest(POSITIONS_ENDPOINT, params, omitLoggingResponse);
-    }
-
-    public JsonNode getWalletBalance() {
-        TreeMap<String, String> params = new TreeMap<>();
-        return executeGetRequest(WALLET_BALANCE_ENDPOINT, params, false);
     }
 
     public JsonNode setLeverage(String symbol, String leverage) {
@@ -247,17 +241,6 @@ public class BlofinApiClient {
 
         log.info("Ustawianie TP/SL dla pozycji (BloFin TPSL order): {}", blofinParams);
         return executePostRequest(TPSL_ORDER_ENDPOINT, blofinParams);
-    }
-
-    @Deprecated
-    public JsonNode setTrailingStop(String symbol, String trailingStop) {
-        log.warn("BloFin nie obsługuje trailing stop przez REST API v1. " +
-                "Trailing stop (wartość: {}) dla {} zostanie pominięty.", trailingStop, symbol);
-        try {
-            return objectMapper.readTree("{\"code\":\"0\",\"msg\":\"trailing_stop_not_supported\",\"data\":{}}");
-        } catch (Exception e) {
-            throw new RuntimeException(e);
-        }
     }
 
     public JsonNode getOrderDetails(String symbol, String orderId) {

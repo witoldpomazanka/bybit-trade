@@ -67,26 +67,6 @@ public class LimitOrderService {
         return limitOrderRepository.findByStatus("PENDING");
     }
 
-    @Transactional
-    public void updateOrderStatus(String orderId, String status) {
-        log.info("Aktualizacja statusu zlecenia orderId={} na: {}", orderId, status);
-
-        Optional<LimitOrder> orderOpt = limitOrderRepository.findByOrderId(orderId);
-        if (orderOpt.isPresent()) {
-            LimitOrder order = orderOpt.get();
-            order.setStatus(status);
-
-            if ("FILLED".equals(status)) {
-                order.setFilledAt(LocalDateTime.now());
-            }
-
-            order.setLastCheckedAt(LocalDateTime.now());
-            limitOrderRepository.save(order);
-        } else {
-            log.warn("Nie znaleziono zlecenia o ID: {}", orderId);
-        }
-    }
-
     @Transactional(readOnly = true)
     public List<LimitOrderTakeProfit> getUnprocessedTakeProfitsForOrder(Long orderId) {
         return takeProfitRepository.findByLimitOrderIdAndProcessed(orderId, false);

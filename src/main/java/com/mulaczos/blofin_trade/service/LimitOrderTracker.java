@@ -27,9 +27,6 @@ public class LimitOrderTracker {
     private final BlofinIntegrationService blofinIntegrationService;
     private final TwilioNotificationService twilioNotificationService;
 
-    @Value("${limit-order.tracker.check-interval:30000}")
-    private long checkInterval;
-
     @Scheduled(fixedDelayString = "${limit-order.tracker.check-interval:30000}")
     @Transactional
     public void checkPendingOrders() {
