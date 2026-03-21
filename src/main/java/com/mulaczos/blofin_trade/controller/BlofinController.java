@@ -23,6 +23,7 @@ public class BlofinController {
     public ResponseEntity<JsonNode> openAdvancedPosition(
             @RequestBody Map<String, Object> payload,
             @RequestHeader(value = "chat-title", required = false) String chatTitle) {
+        log.info("Przyjąłem request o otwarcie zaawansowanej pozycji. Payload: {}, chat title: {}", payload, chatTitle);
         if (chatTitle != null) {
             log.info("Chat title: {}", chatTitle);
         }
