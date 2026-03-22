@@ -215,7 +215,13 @@ public class BlofinApiClient {
 
         blofinParams.put("marginMode", "isolated");
         blofinParams.put("positionSide", "net");
-        blofinParams.put("side", "buy");
+        
+        // Dynamiczne Side: jeśli podano w params, użyj go. Jeśli nie, domyślnie 'sell' (zamykanie LONG)
+        String side = "sell";
+        if (params.containsKey("side")) {
+            side = params.get("side").toString().toLowerCase();
+        }
+        blofinParams.put("side", side);
 
         if (params.containsKey("tpSize")) {
             blofinParams.put("size", params.get("tpSize").toString());

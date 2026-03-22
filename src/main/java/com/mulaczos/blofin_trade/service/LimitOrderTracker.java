@@ -173,13 +173,11 @@ public class LimitOrderTracker {
             }
 
             BigDecimal remainingQty = totalQty;
-            int processedCount = 0;
+            String tpSide = "buy".equalsIgnoreCase(order.getSide()) ? "sell" : "buy";
 
-            for (int i = 0; i < tpCount; i++) {
-                if (processedCount >= actualTpCount) break;
-
+            for (int i = 0; i < takeProfits.size(); i++) {
                 LimitOrderTakeProfit tp = takeProfits.get(i);
-                boolean isLast = (processedCount == actualTpCount - 1);
+                boolean isLast = (i == takeProfits.size() - 1);
                 BigDecimal tpSize;
 
                 if (isLast) {
@@ -203,21 +201,34 @@ public class LimitOrderTracker {
                 tpReq.put("tpSize", tpSize.toPlainString());
                 tpReq.put("takeProfit", tp.getPrice());
                 tpReq.put("positionIdx", 0);
+                tpReq.put("side", tpSide);
 
                 if (order.getStopLoss() != null && !order.getStopLoss().isEmpty()) {
                     tpReq.put("stopLoss", order.getStopLoss());
                 }
 
-                log.info("Ustawianie TP/SL-Limit#{} dla {}: cena={}, size={}", (processedCount + 1), order.getSymbol(), tp.getPrice(), tpSize.toPlainString());
+                log.info("Ustawianie TP/SL-Limit#{} dla {}: cena={}, size={}, side={}", (i + 1), order.getSymbol(), tp.getPrice(), tpSize.toPlainString(), tpSide);
                 blofinIntegrationService.callTradingStop(tpReq);
 
                 remainingQty = remainingQty.subtract(tpSize);
                 tp.setProcessed(true);
-                processedCount++;
-                
-                if (isLast) break;
             }
 
+            // Stop Loss jako Algo Order (Stop Market)
+            if (order.getStopLoss() != null && !order.getStopLoss().isEmpty()) {
+                log.info("Wysyłanie zlecenia Stop Loss (Stop Market) dla {}", order.getOrderId());
+                JsonNode algoResponse = blofinApiClient.placeAlgoOrder(
+                        order.getSymbol(),
+                        tpSide,
+                        "stop_market",
+                        totalQty.toPlainString(),
+                        order.getStopLoss(),
+                        null,
+                        true
+                );
+                log.info("Wynik SL dla {}: {}", order.getOrderId(), algoResponse);
+            }
+            
             order.setStatus("PROCESSED_TP_SL");
         } catch (Exception e) {
             log.error("Błąd konfiguracji TP/SL dla {}: {}", order.getOrderId(), e.getMessage());

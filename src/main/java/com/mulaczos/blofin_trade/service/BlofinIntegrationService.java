@@ -357,6 +357,8 @@ public class BlofinIntegrationService {
 
             log.info("Ustawianie TP#{} dla {}: cena={}, size={}", (processedCount + 1), symbol, tp.getValue(), tpSize.toPlainString());
 
+            String side = request.getSide().equalsIgnoreCase("Buy") ? "Sell" : "Buy";
+
             Map<String, Object> tpReq = new HashMap<>();
             tpReq.put("category", "linear");
             tpReq.put("symbol", symbol);
@@ -365,6 +367,7 @@ public class BlofinIntegrationService {
             tpReq.put("tpSize", tpSize.toPlainString());
             tpReq.put("takeProfit", tp.getValue());
             tpReq.put("positionIdx", 0);
+            tpReq.put("side", side);
 
             if (request.getStopLoss() != null) {
                 tpReq.put("stopLoss", request.getStopLoss());
