@@ -472,12 +472,12 @@ public class BlofinIntegrationService {
         return BigDecimal.ZERO;
     }
 
-    private void callTradingStop(Map<String, Object> tpReq) {
+    public void callTradingStop(Map<String, Object> tpReq) {
+        log.info("callTradingStop z parametrami: {}", tpReq);
         try {
             blofinApiClient.setTradingStop(tpReq);
         } catch (Exception e) {
-            log.error("Błąd setTradingStop: {}", e.getMessage());
-            throw new RuntimeException("Nie udało się ustawić częściowego TP/SL", e);
+            throw new RuntimeException("Nie udało się ustawić częściowego TP/SL: " + tpReq, e);
         }
     }
 

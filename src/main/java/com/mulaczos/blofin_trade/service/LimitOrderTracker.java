@@ -3,7 +3,7 @@ package com.mulaczos.blofin_trade.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.mulaczos.blofin_trade.model.LimitOrder;
 import com.mulaczos.blofin_trade.model.LimitOrderTakeProfit;
-import java.util.ArrayList;
+
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -160,58 +160,62 @@ public class LimitOrderTracker {
             
             BigDecimal totalQty = new BigDecimal(filledQty);
             BigDecimal lotSize = blofinIntegrationService.getQuantityStep(order.getSymbol());
+            BigDecimal minSize = blofinIntegrationService.getMinimumOrderQuantity(order.getSymbol());
             
-            BigDecimal baseTpQty = totalQty.divide(BigDecimal.valueOf(takeProfits.size()), 8, RoundingMode.DOWN);
-            BigDecimal multiplier = baseTpQty.divide(lotSize, 0, RoundingMode.DOWN);
-            baseTpQty = multiplier.multiply(lotSize);
+            int tpCount = takeProfits.size();
+            int maxPossibleTps = totalQty.divide(minSize, 0, RoundingMode.DOWN).intValue();
+            int actualTpCount = Math.min(tpCount, maxPossibleTps);
+            
+            if (actualTpCount == 0) {
+                log.error("Nie można ustawić Partial TP/SL dla {}: za mało kontraktów ({})", order.getOrderId(), totalQty.toPlainString());
+                order.setStatus("PROCESSED_TP_SL");
+                return;
+            }
 
-            List<Map<String, String>> batchOrders = new ArrayList<>();
             BigDecimal remainingQty = totalQty;
-            String tpSide = "buy".equalsIgnoreCase(order.getSide()) ? "sell" : "buy";
+            int processedCount = 0;
 
-            for (int i = 0; i < takeProfits.size(); i++) {
+            for (int i = 0; i < tpCount; i++) {
+                if (processedCount >= actualTpCount) break;
+
                 LimitOrderTakeProfit tp = takeProfits.get(i);
-                boolean isLast = (i == takeProfits.size() - 1);
-                BigDecimal currentTpQty = isLast ? remainingQty : baseTpQty;
+                boolean isLast = (processedCount == actualTpCount - 1);
+                BigDecimal tpSize;
 
-                if (currentTpQty.compareTo(BigDecimal.ZERO) <= 0) {
-                    log.warn("Pominięto TP#{} dla {} - zerowa ilość", (i+1), order.getOrderId());
-                    continue;
+                if (isLast) {
+                    tpSize = remainingQty;
+                } else {
+                    BigDecimal idealPart = totalQty.divide(BigDecimal.valueOf(actualTpCount), 8, RoundingMode.DOWN);
+                    tpSize = blofinIntegrationService.roundToValidQuantity(idealPart, lotSize, RoundingMode.DOWN);
+
+                    if (tpSize.compareTo(minSize) < 0) tpSize = minSize;
+                    if (remainingQty.subtract(tpSize).compareTo(minSize) < 0) {
+                        tpSize = remainingQty;
+                        isLast = true;
+                    }
                 }
 
-                Map<String, String> tpOrder = new HashMap<>();
-                tpOrder.put("instId", order.getSymbol().contains("-") ? order.getSymbol() : order.getSymbol().replace("USDT", "-USDT"));
-                tpOrder.put("marginMode", "isolated");
-                tpOrder.put("positionSide", "net");
-                tpOrder.put("side", tpSide);
-                tpOrder.put("orderType", "limit");
-                tpOrder.put("size", currentTpQty.toPlainString());
-                tpOrder.put("price", tp.getPrice());
-                tpOrder.put("reduceOnly", "true");
-                
-                batchOrders.add(tpOrder);
-                remainingQty = remainingQty.subtract(currentTpQty);
+                Map<String, Object> tpReq = new HashMap<>();
+                tpReq.put("category", "linear");
+                tpReq.put("symbol", order.getSymbol());
+                tpReq.put("tpslMode", "Partial");
+                tpReq.put("tpOrderType", "Market");
+                tpReq.put("tpSize", tpSize.toPlainString());
+                tpReq.put("takeProfit", tp.getPrice());
+                tpReq.put("positionIdx", 0);
+
+                if (order.getStopLoss() != null && !order.getStopLoss().isEmpty()) {
+                    tpReq.put("stopLoss", order.getStopLoss());
+                }
+
+                log.info("Ustawianie TP/SL-Limit#{} dla {}: cena={}, size={}", (processedCount + 1), order.getSymbol(), tp.getPrice(), tpSize.toPlainString());
+                blofinIntegrationService.callTradingStop(tpReq);
+
+                remainingQty = remainingQty.subtract(tpSize);
                 tp.setProcessed(true);
-            }
-
-            if (!batchOrders.isEmpty()) {
-                JsonNode batchResponse = blofinApiClient.placeBatchOrders(batchOrders);
-                log.info("Wynik batch TP ({}): {}", order.getOrderId(), batchResponse);
-            }
-
-            // Stop Loss jako Algo Order (Stop Market)
-            if (order.getStopLoss() != null && !order.getStopLoss().isEmpty()) {
-                log.info("Wysyłanie zlecenia Stop Loss (Stop Market) dla {}", order.getOrderId());
-                JsonNode algoResponse = blofinApiClient.placeAlgoOrder(
-                        order.getSymbol(),
-                        tpSide,
-                        "stop_market",
-                        totalQty.toPlainString(),
-                        order.getStopLoss(),
-                        null,
-                        true
-                );
-                log.info("Wynik SL dla {}: {}", order.getOrderId(), algoResponse);
+                processedCount++;
+                
+                if (isLast) break;
             }
 
             order.setStatus("PROCESSED_TP_SL");
