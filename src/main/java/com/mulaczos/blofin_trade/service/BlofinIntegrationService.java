@@ -29,8 +29,6 @@ import java.util.Optional;
 @RequiredArgsConstructor
 public class BlofinIntegrationService {
 
-    private static final int DEFAULT_LEVERAGE = 10;
-
     @Value("${usd-amount-for-trade:10.0}")
     private Double usdAmountForTrade;
 
@@ -40,17 +38,9 @@ public class BlofinIntegrationService {
     private final LimitOrderService limitOrderService;
     private final TradeHistoryRepository tradeHistoryRepository;
 
-    @EventListener(ApplicationStartedEvent.class)
-    public void init() {
-        log.info("Inicjalizacja BloFin - ustawianie domyślnej dźwigni {}x", DEFAULT_LEVERAGE);
-        setLeverageForSymbol("BTCUSDT", DEFAULT_LEVERAGE);
-        log.info("Wartość w USDT dla minimalnego domyślnego zagrania, jeśli nie zdefiniowane w payload: {}", usdAmountForTrade);
-    }
-
     public JsonNode getOpenPositions() {
-        log.info("Pobieranie otwartych pozycji z BloFin");
         JsonNode result = blofinApiClient.getPositions(false);
-        log.info("Pobrano dane o otwartych pozycjach: {}", result);
+        log.info("Pobrano otwarte pozycje (raw): {}", result);
         return result;
     }
 
@@ -61,99 +51,75 @@ public class BlofinIntegrationService {
 
     @Transactional
     public JsonNode openAdvancedPosition(AdvancedMarketPositionRequest request, String chatTitle) {
-        log.info("Wejście do openAdvancedPosition z request: {} i chatTitle: {}", request, chatTitle);
-        log.info("Rozpoczynam otwieranie zaawansowanej pozycji: {}", request);
+        log.info("Otwieranie pozycji: symbol={}, side={}, leverage={}x, type={}, Chat={}", 
+                request.getCoin(), request.getSide(), request.getLeverage(), request.isLimit() ? "LIMIT" : "MARKET", chatTitle);
         try {
             String symbol = prepareAndValidateSymbol(request.getCoin());
-            log.info("Przygotowany i zwalidowany symbol: {}", symbol);
 
             JsonNode validationCheck = validatePositionNotAlreadyOpen(symbol, chatTitle);
             if (validationCheck != null) {
-                log.info("Walidacja nowej pozycji nie powiodła się: {}", validationCheck);
+                log.info("Walidacja negatywna - pozycja już istnieje dla: {}", symbol);
                 return validationCheck;
             }
 
             setLeverageForSymbol(symbol, request.getLeverage());
-            log.info("Ustawiono dźwignię {} dla {}", request.getLeverage(), symbol);
 
             BigDecimal initialMargin = BigDecimal.valueOf(usdAmountForTrade);
             BigDecimal totalPositionValue = initialMargin.multiply(BigDecimal.valueOf(request.getLeverage()));
-            log.info("Obliczona wartość marży: {}, całkowita wartość pozycji: {}", initialMargin, totalPositionValue);
 
             if (request.isLimit()) {
-                log.info("Kierowanie do handleLimitOrder");
                 return handleLimitOrder(request, symbol, chatTitle, initialMargin, totalPositionValue);
             } else {
-                log.info("Kierowanie do handleMarketOrder");
                 return handleMarketOrder(request, symbol, chatTitle, initialMargin, totalPositionValue);
             }
         } catch (BlofinApiException ex) {
-            log.error("Błąd API BloFin podczas otwierania pozycji [{}]: {}", ex.getApiCode(), ex.getApiMsg());
+            log.error("Błąd API BloFin [{}]: {}", ex.getApiCode(), ex.getApiMsg());
             return createErrorResponse("Błąd BloFin API [" + ex.getApiCode() + "]: " + ex.getApiMsg());
         } catch (IOException e) {
-            log.error("Błąd podczas otwierania pozycji na BloFin: {}", e.getMessage(), e);
-            throw new RuntimeException("Błąd podczas otwierania pozycji na BloFin: " + e.getMessage(), e);
+            log.error("Błąd IO przy otwieraniu pozycji: {}", e.getMessage());
+            throw new RuntimeException("Błąd IO przy otwieraniu pozycji: " + e.getMessage(), e);
         }
     }
 
     private JsonNode validatePositionNotAlreadyOpen(String symbol, String chatTitle) {
-        log.info("validatePositionNotAlreadyOpen dla symbol: {}, chat: {}", symbol, chatTitle);
-
-        // Zawsze weryfikujemy rzeczywisty stan pozycji przez API (source of truth)
-        log.info("Odpytuję API o aktualnie otwarte pozycje dla symbolu: {}", symbol);
         JsonNode apiCheck = checkIfThePositionForSymbolIsAlreadyOpened(symbol);
 
         if (chatTitle != null) {
             Optional<TradeHistory> existingTrade = tradeHistoryRepository.findFirstBySymbolAndChatTitleOrderByCreatedAtDesc(symbol, chatTitle);
             if (existingTrade.isPresent()) {
                 TradeHistory trade = existingTrade.get();
-                log.info("Znaleziono wpis w historii DB dla symbolu {} z czatu {} (id: {}, createdAt: {}, side: {})",
-                        symbol, chatTitle, trade.getId(), trade.getCreatedAt(), trade.getSide());
                 if (apiCheck != null) {
-                    log.warn("API potwierdziło otwartą pozycję dla {} z czatu {} - blokuję otwarcie nowej pozycji", symbol, chatTitle);
-                    return createErrorResponse("Dla symbolu " + symbol + " z czatu " + chatTitle + " istnieje już otwarta pozycja (potwierdzone przez API).");
+                    log.warn("Blokada: API potwierdziło otwartą pozycję dla {} z czatu {}", symbol, chatTitle);
+                    return createErrorResponse("Dla symbolu " + symbol + " z czatu " + chatTitle + " istnieje już otwarta pozycja.");
                 } else {
-                    log.info("API NIE znalazło otwartej pozycji dla {} - wpis w DB pochodzi prawdopodobnie z zamkniętej pozycji. Zezwalam na otwarcie nowej.", symbol);
+                    log.info("Poprzedni wpis w DB dla {} (czat: {}) dotyczy zamkniętej pozycji. Kontynuuję.", symbol, chatTitle);
                 }
-            } else {
-                log.info("Brak wpisu w historii DB dla symbolu {} z czatu {} - kontynuuję weryfikację API", symbol, chatTitle);
-                if (apiCheck != null) {
-                    log.warn("API wykryło otwartą pozycję dla {} mimo braku wpisu w DB - blokuję", symbol);
-                    return apiCheck;
-                }
-            }
-        } else {
-            log.info("chatTitle jest null - pomijam sprawdzanie historii DB, opieram się wyłącznie na odpowiedzi API");
-            if (apiCheck != null) {
-                log.warn("API wykryło otwartą pozycję dla {} - blokuję otwarcie nowej pozycji", symbol);
+            } else if (apiCheck != null) {
+                log.warn("Blokada: API wykryło otwartą pozycję dla {} (brak wpisu w DB)", symbol);
                 return apiCheck;
             }
+        } else if (apiCheck != null) {
+            log.warn("Blokada: API wykryło otwartą pozycję dla {} (chatTitle=null)", symbol);
+            return apiCheck;
         }
 
-        log.info("Walidacja przeszła pomyślnie - brak otwartej pozycji dla {} (ani w API, ani w DB)", symbol);
         return null;
     }
 
     private JsonNode handleLimitOrder(AdvancedMarketPositionRequest request, String symbol, String chatTitle, BigDecimal initialMargin, BigDecimal totalPositionValue) throws IOException {
-        log.info("handleLimitOrder START. InitialMargin: {}", initialMargin);
-        log.info("Wykryto zlecenie limit - specjalna obsługa");
-        log.info("Docelowa wartość pozycji (Total Position Value): {} USDT (Initial Margin: {} USDT x Leverage: {}x)",
-                totalPositionValue, initialMargin, request.getLeverage());
+        log.info("Przetwarzanie zlecenia LIMIT: symbol={}, price={}, margin={} USDT", symbol, request.getEntryPrice(), initialMargin);
 
         BigDecimal quantityInCrypto = calculatePositionSize(
                 symbol,
                 new BigDecimal(request.getEntryPrice()),
                 totalPositionValue
         );
-        log.info("handleLimitOrder - ilość w kontraktach: {}", quantityInCrypto.toPlainString());
 
         String orderType = "Limit";
         String orderPrice = request.getEntryPrice();
         BigDecimal finalValueUsdt = calculateApproximateValue(symbol, quantityInCrypto, new BigDecimal(orderPrice));
-        log.info("handleLimitOrder - finalValueUsdt: {}", finalValueUsdt.toPlainString());
 
-        log.info("Parametry zlecenia limit - symbol: {}, side: {}, cena: {}, qty: {}, stopLoss: {}, totalValue: {} USDT, finalValue: {} USDT",
-                symbol, request.getSide(), orderPrice, quantityInCrypto.toPlainString(), request.getStopLoss(), totalPositionValue.toPlainString(), finalValueUsdt.toPlainString());
+        log.info("Parametry zlecenia LIMIT: qty={}, SL={}, approxValue={} USDT", quantityInCrypto.toPlainString(), request.getStopLoss(), finalValueUsdt.toPlainString());
 
         JsonNode openResult = blofinApiClient.openPosition(
                 symbol,
@@ -164,14 +130,15 @@ public class BlofinIntegrationService {
                 null,
                 request.getStopLoss()
         );
-        log.info("handleLimitOrder - Wynik z BlofinApiClient: {}", openResult);
 
         saveTradeHistory(symbol, request, quantityInCrypto.toPlainString(), chatTitle, orderType, orderPrice, finalValueUsdt.toPlainString());
 
         if (isSuccessfulOrder(openResult)) {
             String orderId = openResult.get("data").get(0).get("orderId").asText();
-            log.info("handleLimitOrder - Zlecenie udane, zapisuję do tracker-a. OrderID: {}", orderId);
+            log.info("Zlecenie LIMIT udane: orderId={}", orderId);
             limitOrderService.saveLimitOrder(orderId, request, symbol, quantityInCrypto.toPlainString());
+        } else {
+            log.warn("Zlecenie LIMIT zwróciło nietypowy wynik: {}", openResult);
         }
 
         sendSms(request, symbol, openResult, orderPrice, finalValueUsdt.toPlainString());
@@ -179,54 +146,38 @@ public class BlofinIntegrationService {
     }
 
     private JsonNode handleMarketOrder(AdvancedMarketPositionRequest request, String symbol, String chatTitle, BigDecimal initialMargin, BigDecimal totalPositionValue) throws IOException {
-        log.info("handleMarketOrder START. TotalPositionValue: {}", totalPositionValue);
-        log.info("Rozpoczynam przygotowanie pozycji Market");
-        log.info("Pobieranie aktualnej ceny rynkowej dla {}", symbol);
+        log.info("Przetwarzanie zlecenia MARKET: symbol={}, margin={} USDT", symbol, initialMargin);
         double currentPrice = blofinApiClient.getMarketPrice("linear", symbol);
         BigDecimal price = BigDecimal.valueOf(currentPrice);
-        log.info("handleMarketOrder - aktualna cena: {}", price);
-
-        log.info("=== OBLICZANIE POZYCJI ===");
-        log.info("Initial Margin (Twoja kwota wejścia z property): {} USDT", initialMargin);
-        log.info("Leverage: {}x", request.getLeverage());
-        log.info("Total Position Value (wartość pozycji na giełdzie): {} USDT", totalPositionValue);
-        log.info("Cena entrada: {} USDT", price);
 
         BigDecimal quantityInCrypto = calculatePositionSize(symbol, price, totalPositionValue);
-        log.info("handleMarketOrder - obliczone qty (kontrakty): {}", quantityInCrypto.toPlainString());
-        
         BigDecimal approximateValue = calculateApproximateValue(symbol, quantityInCrypto, price);
-        log.info("Obliczona wielkość pozycji: {} kontraktów (wartość: ~{} USDT)", quantityInCrypto.toPlainString(), approximateValue.toPlainString());
-
-        String orderType = "Market";
-        log.info("Parametry zlecenia - symbol: {}, side: {}, typ: {}, qty: {}, stopLoss: {}, dźwignia: {}x",
-                symbol, request.getSide(), orderType, quantityInCrypto.toPlainString(), request.getStopLoss(), request.getLeverage());
+        
+        log.info("Parametry zlecenia MARKET: qty={}, price={}, SL={}, approxValue={} USDT", 
+                quantityInCrypto.toPlainString(), price.toPlainString(), request.getStopLoss(), approximateValue.toPlainString());
 
         JsonNode openResult = blofinApiClient.openPosition(
                 symbol,
                 request.getSide(),
-                orderType,
+                "Market",
                 quantityInCrypto.toPlainString(),
                 null,
                 null,
                 request.getStopLoss()
         );
-        log.info("handleMarketOrder - Wynik otwarcia: {}", openResult);
 
         String executedQty = extractExecutedQty(openResult, quantityInCrypto);
         String avgPrice = extractAvgPrice(openResult, price);
         BigDecimal executedValue = calculateApproximateValue(symbol, new BigDecimal(executedQty), new BigDecimal(avgPrice));
         String finalUsdtValue = executedValue.toPlainString();
-        log.info("handleMarketOrder - ExecutedQty: {}, AvgPrice: {}, FinalUSDT: {}", executedQty, avgPrice, finalUsdtValue);
 
         saveTradeHistory(symbol, request, executedQty, chatTitle, "Market", avgPrice, finalUsdtValue);
 
         if (shouldConfigurePartialTakeProfits(request)) {
-            log.info("Konfiguracja partial TP dla zlecenia Market");
             configurePartialTakeProfits(symbol, request);
         }
 
-        log.info("Zakończono otwieranie pozycji z sukcesem");
+        log.info("Zlecenie MARKET wykonane: execQty={}, avgPrice={}, totalValue={} USDT", executedQty, avgPrice, finalUsdtValue);
         sendSms(request, symbol, openResult, avgPrice, finalUsdtValue);
 
         return openResult;
@@ -258,7 +209,6 @@ public class BlofinIntegrationService {
     }
 
     private void saveTradeHistory(String symbol, AdvancedMarketPositionRequest request, String quantity, String chatTitle, String orderType, String entryPrice, String finalUsdtAmount) {
-        log.info("saveTradeHistory dla symbol: {}, qty: {}, usdt: {}", symbol, quantity, finalUsdtAmount);
         TradeHistory tradeHistory = TradeHistory.builder()
                 .symbol(symbol)
                 .side(request.getSide())
@@ -274,11 +224,10 @@ public class BlofinIntegrationService {
                 .build();
 
         tradeHistoryRepository.save(tradeHistory);
-        log.info("Zapisano historię zlecenia: {}", tradeHistory);
+        log.info("Zapisano do historii DB: ID={}, symbol={}", tradeHistory.getId(), symbol);
     }
 
     private void sendSms(AdvancedMarketPositionRequest request, String symbol, JsonNode openResult, String entryPrice, String finalUsdtAmount) {
-        log.info("sendSms START. Symbol: {}", symbol);
         String qty = "nieznana";
         if (openResult.has("data") && openResult.get("data").isArray()
                 && !openResult.get("data").isEmpty()) {
@@ -303,7 +252,6 @@ public class BlofinIntegrationService {
 
     @Nullable
     private JsonNode checkIfThePositionForSymbolIsAlreadyOpened(String symbol) {
-        log.info("checkIfThePositionForSymbolIsAlreadyOpened dla {}", symbol);
         JsonNode openPositions = getOpenPositions();
         if (openPositions.has("data") && openPositions.get("data").isArray()) {
             JsonNode positionsList = openPositions.get("data");
@@ -314,10 +262,8 @@ public class BlofinIntegrationService {
                         ? Math.abs(position.get("positions").asDouble()) : 0;
                 if ((posInstId.equals(instId) || posInstId.replace("-", "").equals(symbol))
                         && posSize > 0) {
-                    log.warn("Znaleziono już otwartą pozycję dla symbolu: {}. Wielkość pozycji: {}",
-                            symbol, posSize);
-                    return createErrorResponse("Dla symbolu " + symbol + " istnieje już otwarta pozycja. " +
-                            "Zamknij istniejącą pozycję przed otwarciem nowej.");
+                    log.warn("API: Pozycja dla {} jest już otwarta (size={})", symbol, posSize);
+                    return createErrorResponse("Dla symbolu " + symbol + " istnieje już otwarta pozycja.");
                 }
             }
         }
@@ -333,19 +279,24 @@ public class BlofinIntegrationService {
     }
 
     private String prepareAndValidateSymbol(String coin) throws IOException {
-        log.info("Szukanie symbolu dla coina: {}", coin);
         String symbol = blofinApiClient.findCorrectSymbol(coin);
         if (!blofinApiClient.isSymbolSupported(symbol)) {
             throw new RuntimeException("Symbol " + symbol + " nie jest obsługiwany na BloFin");
         }
-        log.info("Znaleziony i zwalidowany symbol: {}", symbol);
         return symbol;
     }
 
     private void setLeverageForSymbol(String symbol, int leverage) {
-        log.info("setLeverageForSymbol: {} -> {}x", symbol, leverage);
-        log.info("Ustawianie dźwigni {}x dla symbolu {}", leverage, symbol);
-        blofinApiClient.setLeverage(symbol, String.valueOf(leverage));
+        try {
+            blofinApiClient.setLeverage(symbol, String.valueOf(leverage));
+            log.info("Ustawiono dźwignię: {}x dla {}", leverage, symbol);
+        } catch (BlofinApiException e) {
+            if (BlofinApiException.PENDING_ORDERS_PREVENT_LEVERAGE_ADJUSTMENT.equals(e.getApiCode())) {
+                log.warn("Pominięto ustawianie dźwigni {} dla {}: aktywne zlecenia", leverage, symbol);
+            } else {
+                throw e;
+            }
+        }
     }
 
     private boolean shouldConfigurePartialTakeProfits(AdvancedMarketPositionRequest request) {
@@ -355,11 +306,9 @@ public class BlofinIntegrationService {
     }
 
     private void configurePartialTakeProfits(String symbol, AdvancedMarketPositionRequest request) throws IOException {
-        log.info("configurePartialTakeProfits START dla {}", symbol);
-
         BigDecimal totalQty = getOpenedPositionQty(symbol);
         if (totalQty.compareTo(BigDecimal.ZERO) <= 0) {
-            log.warn("Brak otwartej pozycji dla {}, pomijam konfigurację TP", symbol);
+            log.warn("Pominięto Partial TP dla {}: brak otwartej pozycji", symbol);
             return;
         }
 
@@ -368,18 +317,16 @@ public class BlofinIntegrationService {
 
         BigDecimal minQty = getMinimumOrderQuantity(symbol);
         BigDecimal qtyStep = getQuantityStep(symbol);
-        log.info("Wielkość pozycji: {} kontraktów. Minimalna ilość TP: {}, krok: {}", totalQty.toPlainString(), minQty.toPlainString(), qtyStep.toPlainString());
 
-        // Sprawdzamy ile poziomów możemy obsłużyć (każdy musi mieć co najmniej minQty)
         int maxPossibleTps = totalQty.divide(minQty, 0, RoundingMode.DOWN).intValue();
         int actualTpCount = Math.min(requestedTpCount, maxPossibleTps);
 
         if (actualTpCount < requestedTpCount) {
-             log.warn("Zmniejszono liczbę poziomów TP z {} do {} z powodu minSize={}", requestedTpCount, actualTpCount, minQty.toPlainString());
+             log.warn("Zmniejszono liczbę TP dla {} z {} do {} (minSize={})", symbol, requestedTpCount, actualTpCount, minQty.toPlainString());
         }
 
         if (actualTpCount == 0) {
-            log.error("Nie można ustawić ani jednego poziomu TP! Wielkość pozycji {} jest za mała dla minSize {}", totalQty.toPlainString(), minQty.toPlainString());
+            log.error("Nie można ustawić Partial TP dla {}: zbyt mała pozycja ({})", symbol, totalQty.toPlainString());
             return;
         }
 
@@ -409,7 +356,7 @@ public class BlofinIntegrationService {
                 }
             }
 
-            log.info("Ustawianie TP#{} dla {}, cena: {}, rozmiar: {} kontraktów", (processedCount + 1), symbol, tp.getValue(), tpSize.toPlainString());
+            log.info("Ustawianie TP#{} dla {}: cena={}, size={}", (processedCount + 1), symbol, tp.getValue(), tpSize.toPlainString());
 
             Map<String, Object> tpReq = new HashMap<>();
             tpReq.put("category", "linear");
@@ -431,11 +378,10 @@ public class BlofinIntegrationService {
             
             if (isLast) break;
         }
-        log.info("Zakończono konfigurację partial take-profits");
+        log.info("Zakończono konfigurację Take-Profits dla {}", symbol);
     }
 
     public BigDecimal getMinOrderValue(String symbol) throws IOException {
-        log.info("getMinOrderValue dla {}", symbol);
         JsonNode instrumentInfo = blofinApiClient.getInstrumentsInfo(symbol);
         if (instrumentInfo.has("data") && instrumentInfo.get("data").isArray()
                 && !instrumentInfo.get("data").isEmpty()) {
@@ -479,42 +425,26 @@ public class BlofinIntegrationService {
     }
 
     private BigDecimal calculatePositionSize(String symbol, BigDecimal price, BigDecimal positionValue) throws IOException {
-        log.info("calculatePositionSize - price: {}, posValue: {}", price.toPlainString(), positionValue.toPlainString());
-
         BigDecimal ctVal = getContractValue(symbol);
         BigDecimal minQtyContracts = getMinimumOrderQuantity(symbol);
         BigDecimal qtyStepContracts = getQuantityStep(symbol);
         BigDecimal minOrderValueUsdt = getMinOrderValue(symbol);
 
-        log.info("Parametry instrumentu {} - ctVal: {}, minSize: {}, lotSize: {}, minValueUsdt: {}", 
-                symbol, ctVal.toPlainString(), minQtyContracts.toPlainString(), qtyStepContracts.toPlainString(), minOrderValueUsdt.toPlainString());
-
-        // 1. Obliczamy ilość w bazowej walucie (np. BTC)
         BigDecimal quantityCrypto = positionValue.divide(price, 8, RoundingMode.UP);
-        log.info("Wstępna ilość krypto (np. BTC): {}", quantityCrypto.toPlainString());
-
-        // 2. Konwertujemy na liczbę kontraktów: contracts = quantityCrypto / ctVal
         BigDecimal quantityContracts = quantityCrypto.divide(ctVal, 8, RoundingMode.UP);
-        log.info("Wstępna ilość kontraktów: {}", quantityContracts.toPlainString());
 
-        // 3. Sprawdzamy minimalną wartość USDT
         if (positionValue.compareTo(minOrderValueUsdt) < 0) {
-            log.warn("Wartość pozycji {} USDT poniżej minimum {} USDT - koryguję", positionValue.toPlainString(), minOrderValueUsdt.toPlainString());
             quantityContracts = minOrderValueUsdt.divide(price, 8, RoundingMode.UP).divide(ctVal, 8, RoundingMode.UP);
         }
 
-        // 4. Sprawdzamy minimalną liczbę kontraktów
         if (quantityContracts.compareTo(minQtyContracts) < 0) {
-            log.warn("Ilość kontraktów {} poniżej minimum {} - używamy minimum", quantityContracts.toPlainString(), minQtyContracts.toPlainString());
             quantityContracts = minQtyContracts;
         }
 
-        // 5. Zaokrąglamy do lotSize
         quantityContracts = roundToValidQuantity(quantityContracts, qtyStepContracts, RoundingMode.UP);
 
         BigDecimal finalUsdtValue = quantityContracts.multiply(ctVal).multiply(price);
-        log.info("calculatePositionSize FINAL - qty (contracts): {}, approx value: {} USDT", 
-                quantityContracts.toPlainString(), finalUsdtValue.toPlainString());
+        log.info("Obliczanie pozycji {}: qty={} (kontrakty), approxValue={} USDT", symbol, quantityContracts.toPlainString(), finalUsdtValue.toPlainString());
 
         return quantityContracts;
     }
@@ -544,16 +474,15 @@ public class BlofinIntegrationService {
     }
 
     private void callTradingStop(Map<String, Object> tpReq) {
-        log.info("callTradingStop z parametrami: {}", tpReq);
         try {
             blofinApiClient.setTradingStop(tpReq);
         } catch (Exception e) {
-            throw new RuntimeException("Nie udało się ustawić częściowego TP/SL: " + tpReq, e);
+            log.error("Błąd setTradingStop: {}", e.getMessage());
+            throw new RuntimeException("Nie udało się ustawić częściowego TP/SL", e);
         }
     }
 
     public BigDecimal getMinimumOrderQuantity(String symbol) throws IOException {
-        log.info("getMinimumOrderQuantity dla {}", symbol);
         JsonNode instrumentInfo = blofinApiClient.getInstrumentsInfo(symbol);
         if (instrumentInfo.has("data") && instrumentInfo.get("data").isArray()
                 && !instrumentInfo.get("data").isEmpty()) {
@@ -566,7 +495,6 @@ public class BlofinIntegrationService {
     }
 
     public BigDecimal getQuantityStep(String symbol) throws IOException {
-        log.info("getQuantityStep dla {}", symbol);
         JsonNode instrumentInfo = blofinApiClient.getInstrumentsInfo(symbol);
         if (instrumentInfo.has("data") && instrumentInfo.get("data").isArray()
                 && !instrumentInfo.get("data").isEmpty()) {
@@ -583,14 +511,12 @@ public class BlofinIntegrationService {
     }
 
     public BigDecimal roundToValidQuantity(BigDecimal quantity, BigDecimal qtyStep, RoundingMode roundingMode) {
-        log.info("roundToValidQuantity - qty: {}, step: {}, mode: {}", quantity.toPlainString(), qtyStep.toPlainString(), roundingMode);
         if (qtyStep.compareTo(BigDecimal.ZERO) == 0) {
             return quantity;
         }
         BigDecimal divided = quantity.divide(qtyStep, 0, roundingMode);
         BigDecimal result = divided.multiply(qtyStep);
         int scale = Math.max(0, qtyStep.scale());
-        log.info("roundToValidQuantity RESULT: {}", result.toPlainString());
         return result.setScale(scale, roundingMode);
     }
 
