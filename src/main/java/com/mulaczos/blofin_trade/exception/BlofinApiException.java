@@ -11,6 +11,7 @@ import lombok.Getter;
 public class BlofinApiException extends RuntimeException {
 
     public static final String PENDING_ORDERS_PREVENT_LEVERAGE_ADJUSTMENT = "110007";
+    public static final String OPERATION_NOT_SUPPORTED = "152404";
 
     private final String apiCode;
     private final String apiMsg;

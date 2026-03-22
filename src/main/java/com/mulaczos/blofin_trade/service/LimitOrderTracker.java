@@ -36,13 +36,13 @@ public class LimitOrderTracker {
             return;
         }
 
-        log.info("Znaleziono {} oczekujących zleceń limit", pendingOrders.size());
+        log.info("Sprawdzanie zleceń limit (oczekujące: {})", pendingOrders.size());
 
         for (LimitOrder order : pendingOrders) {
             try {
                 checkOrderStatus(order);
             } catch (Exception e) {
-                log.error("Błąd podczas sprawdzania zlecenia {}: {}", order.getOrderId(), e.getMessage(), e);
+                log.error("Błąd checkPendingOrders (ID: {}): {}", order.getOrderId(), e.getMessage());
             }
         }
     }
@@ -56,15 +56,15 @@ public class LimitOrderTracker {
             if (openOrdersResponse.has("data") && openOrdersResponse.get("data").isArray()) {
                 for (JsonNode o : openOrdersResponse.get("data")) {
                     if (o.has("orderId") && o.get("orderId").asText().equals(order.getOrderId())) {
-                        log.info("Zlecenie {} wciąż oczekuje w książce (status: live/pending).", order.getOrderId());
-                        return; // Oczekuje, nie robimy nic
+                        log.info("Zlecenie {} - wciąż oczekuje (live)", order.getOrderId());
+                        return;
                     }
                 }
             }
 
             boolean detailsChecked = false;
             try {
-                // 2. Jeśli nie ma w oczekujących, sprawdźmy szczegóły zlecenia (może rzucać błąd 152404)
+                // 2. Pobranie szczegółów zlecenia
                 JsonNode orderDetailsResponse = blofinApiClient.getOrderDetails(order.getSymbol(), order.getOrderId());
                 
                 if (orderDetailsResponse.has("data") && orderDetailsResponse.get("data").isArray() 
@@ -75,43 +75,52 @@ public class LimitOrderTracker {
                     String state = orderData.has("state") ? orderData.get("state").asText() : "";
                     String filledQty = orderData.has("filledQty") ? orderData.get("filledQty").asText() : "0";
 
-                    log.info("Status zlecenia {} na giełdzie: {}, wypełniono: {}", order.getOrderId(), state, filledQty);
+                    log.info("Status zlecenia {}: {}, qty={}", order.getOrderId(), state, filledQty);
 
                     if ("filled".equalsIgnoreCase(state)) {
-                        log.info("Zlecenie {} zostało wypełnione. Rozpoczynam konfigurację TP/SL.", order.getOrderId());
-                        order.setStatus("FILLED");
-                        order.setFilledAt(LocalDateTime.now());
-                        
-                        executeFullPositionConfiguration(order, filledQty);
-                        
-                        BigDecimal filledValue = calculateUsdtValue(order.getSymbol(), new BigDecimal(filledQty), new BigDecimal(order.getEntryPrice()));
-                        
-                        twilioNotificationService.sendPositionOpenedNotification(
-                                order.getSymbol(),
-                                order.getSide(),
-                                filledQty,
-                                order.getLeverage(),
-                                "Limit (Filled)",
-                                order.getEntryPrice(),
-                                filledValue.toPlainString()
-                        );
+                        processFilledOrder(order, filledQty, "Limit (API)");
+                        return;
                     } else if ("canceled".equalsIgnoreCase(state)) {
-                        log.info("Zlecenie {} zostało anulowane na giełdzie. Markujemy jako ABORTED.", order.getOrderId());
+                        log.info("Zlecenie {} anulowane - ABORTED", order.getOrderId());
                         order.setStatus("ABORTED");
-                    } else {
-                        log.info("Zlecenie {} wciąż oczekuje (status: {}).", order.getOrderId(), state);
+                        return;
                     }
-                    return;
+                }
+            } catch (com.mulaczos.blofin_trade.exception.BlofinApiException ex) {
+                if (com.mulaczos.blofin_trade.exception.BlofinApiException.OPERATION_NOT_SUPPORTED.equals(ex.getApiCode())) {
+                    log.info("Zlecenie {} - brak w API (152404), przechodzę do fallbacku", order.getOrderId());
+                } else {
+                    log.error("Błąd API getOrderDetails ({}): {}", order.getOrderId(), ex.getApiMsg());
                 }
             } catch (Exception ex) {
-                log.warn("Błąd {} podczas sprawdzania API getOrderDetails dla zlecenia {}. Przechodzę do fallbacku (getPositions).", ex.getMessage(), order.getOrderId());
+                log.warn("Błąd detali zlecenia {}: {}", order.getOrderId(), ex.getMessage());
             }
 
-            // 3. FALLBACK - jeśli order-details zawiodło lub nic nie zwróciło
+            // 3. FALLBACK - sprawdzenie pozycji
             checkStatusByPositionsFallback(order, detailsChecked);
         } catch (Exception e) {
-            log.error("Nieoczekiwany błąd podczas weryfikacji zlecenia {}: {}", order.getOrderId(), e.getMessage());
+            log.error("Krytyczny błąd weryfikacji zlecenia {}: {}", order.getOrderId(), e.getMessage());
         }
+    }
+
+    private void processFilledOrder(LimitOrder order, String filledQty, String source) {
+        log.info("Wypełniono {} ({}). Konfiguracja TP/SL...", order.getOrderId(), source);
+        order.setStatus("FILLED");
+        order.setFilledAt(LocalDateTime.now());
+        
+        executeFullPositionConfiguration(order, filledQty);
+        
+        BigDecimal filledValue = calculateUsdtValue(order.getSymbol(), new BigDecimal(filledQty), new BigDecimal(order.getEntryPrice()));
+        
+        twilioNotificationService.sendPositionOpenedNotification(
+                order.getSymbol(),
+                order.getSide(),
+                filledQty,
+                order.getLeverage(),
+                source,
+                order.getEntryPrice(),
+                filledValue.toPlainString()
+        );
     }
 
     private void checkStatusByPositionsFallback(LimitOrder order, boolean detailsChecked) {
@@ -124,33 +133,17 @@ public class LimitOrderTracker {
                     double size = pos.has("positions") ? Math.abs(pos.get("positions").asDouble()) : 0;
                     
                     if ((posInstId.equals(expectedInstId) || posInstId.replace("-", "").equals(order.getSymbol())) && size > 0) {
-                        log.info("Znaleziono aktywną pozycję dla zlecenia {} przez fallback. Markujemy jako FILLED.", order.getOrderId());
-                        order.setStatus("FILLED");
-                        order.setFilledAt(LocalDateTime.now());
-                        
-                        String sizeStr = String.valueOf(size);
-                        executeFullPositionConfiguration(order, sizeStr);
-                        
-                        BigDecimal filledValue = calculateUsdtValue(order.getSymbol(), BigDecimal.valueOf(size), new BigDecimal(order.getEntryPrice()));
-                        twilioNotificationService.sendPositionOpenedNotification(
-                                order.getSymbol(),
-                                order.getSide(),
-                                sizeStr,
-                                order.getLeverage(),
-                                "Limit (Fallback)",
-                                order.getEntryPrice(),
-                                filledValue.toPlainString()
-                        );
+                        processFilledOrder(order, String.valueOf(size), "Limit (Fallback)");
                         return;
                     }
                 }
             }
             if (!detailsChecked) {
-                log.info("Zlecenie {} nie zostało odnalezione w pozycjach ani oczekujących. Markujemy jako ABORTED (Canceled/Expired).", order.getOrderId());
+                log.info("Zlecenie {} - nie odnaleziono, markuję jako ABORTED", order.getOrderId());
                 order.setStatus("ABORTED");
             }
         } catch (Exception e) {
-            log.error("Błąd w fallbacku dla zlecenia {}: {}", order.getOrderId(), e.getMessage());
+            log.error("Błąd fallback dla {}: {}", order.getOrderId(), e.getMessage());
         }
     }
 
@@ -163,18 +156,12 @@ public class LimitOrderTracker {
                 return;
             }
 
+            log.info("Konfiguracja TP (n={}) dla {}", takeProfits.size(), order.getOrderId());
+            
             BigDecimal totalQty = new BigDecimal(filledQty);
             BigDecimal lotSize = blofinIntegrationService.getQuantityStep(order.getSymbol());
             
-            int tpCount = takeProfits.size();
-            // Ilość na jeden TP: totalQty / tpCount, zaokrąglone w dół do lotSize
-            BigDecimal baseTpQty = totalQty.divide(BigDecimal.valueOf(tpCount), 8, RoundingMode.DOWN);
-            baseTpQty = blofinIntegrationService.roundToValidQuantity(baseTpQty, lotSize);
-            // roundToValidQuantity używa RoundingMode.UP, ale chcemy RoundingMode.DOWN zgodnie z instrukcją "zaokrąglaj w dół"
-            // Poprawmy to lokalnie lub użyjmy dedykowanej logiki.
-            
-            // Re-implementing rounding down to lotSize
-            baseTpQty = totalQty.divide(BigDecimal.valueOf(tpCount), 8, RoundingMode.DOWN);
+            BigDecimal baseTpQty = totalQty.divide(BigDecimal.valueOf(takeProfits.size()), 8, RoundingMode.DOWN);
             BigDecimal multiplier = baseTpQty.divide(lotSize, 0, RoundingMode.DOWN);
             baseTpQty = multiplier.multiply(lotSize);
 
@@ -182,10 +169,15 @@ public class LimitOrderTracker {
             BigDecimal remainingQty = totalQty;
             String tpSide = "buy".equalsIgnoreCase(order.getSide()) ? "sell" : "buy";
 
-            for (int i = 0; i < tpCount; i++) {
+            for (int i = 0; i < takeProfits.size(); i++) {
                 LimitOrderTakeProfit tp = takeProfits.get(i);
-                boolean isLast = (i == tpCount - 1);
+                boolean isLast = (i == takeProfits.size() - 1);
                 BigDecimal currentTpQty = isLast ? remainingQty : baseTpQty;
+
+                if (currentTpQty.compareTo(BigDecimal.ZERO) <= 0) {
+                    log.warn("Pominięto TP#{} dla {} - zerowa ilość", (i+1), order.getOrderId());
+                    continue;
+                }
 
                 Map<String, String> tpOrder = new HashMap<>();
                 tpOrder.put("instId", order.getSymbol().contains("-") ? order.getSymbol() : order.getSymbol().replace("USDT", "-USDT"));
@@ -202,9 +194,10 @@ public class LimitOrderTracker {
                 tp.setProcessed(true);
             }
 
-            log.info("Wysyłanie batcha {} zleceń TP dla {}", batchOrders.size(), order.getOrderId());
-            JsonNode batchResponse = blofinApiClient.placeBatchOrders(batchOrders);
-            log.info("Odpowiedź batch TP dla {}: {}", order.getOrderId(), batchResponse);
+            if (!batchOrders.isEmpty()) {
+                JsonNode batchResponse = blofinApiClient.placeBatchOrders(batchOrders);
+                log.info("Wynik batch TP ({}): {}", order.getOrderId(), batchResponse);
+            }
 
             // Stop Loss jako Algo Order (Stop Market)
             if (order.getStopLoss() != null && !order.getStopLoss().isEmpty()) {
@@ -218,12 +211,12 @@ public class LimitOrderTracker {
                         null,
                         true
                 );
-                log.info("Odpowiedź algo SL dla {}: {}", order.getOrderId(), algoResponse);
+                log.info("Wynik SL dla {}: {}", order.getOrderId(), algoResponse);
             }
 
             order.setStatus("PROCESSED_TP_SL");
         } catch (Exception e) {
-            log.error("Błąd podczas konfiguracji TP/SL dla zlecenia {}: {}", order.getOrderId(), e.getMessage(), e);
+            log.error("Błąd konfiguracji TP/SL dla {}: {}", order.getOrderId(), e.getMessage());
         }
     }
 

@@ -141,7 +141,6 @@ public class BlofinIntegrationService {
             log.warn("Zlecenie LIMIT zwróciło nietypowy wynik: {}", openResult);
         }
 
-        sendSms(request, symbol, openResult, orderPrice, finalValueUsdt.toPlainString());
         return openResult;
     }
 
