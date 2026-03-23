@@ -11,8 +11,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jetbrains.annotations.Nullable;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.context.event.ApplicationStartedEvent;
-import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -51,7 +49,7 @@ public class BlofinIntegrationService {
 
     @Transactional
     public JsonNode openAdvancedPosition(AdvancedMarketPositionRequest request, String chatTitle) {
-        log.info("Otwieranie pozycji: symbol={}, side={}, leverage={}x, type={}, Chat={}", 
+        log.info("Otwieranie pozycji: symbol={}, side={}, leverage={}x, type={}, Chat={}",
                 request.getCoin(), request.getSide(), request.getLeverage(), request.isLimit() ? "LIMIT" : "MARKET", chatTitle);
         try {
             String symbol = prepareAndValidateSymbol(request.getCoin());
@@ -151,8 +149,8 @@ public class BlofinIntegrationService {
 
         BigDecimal quantityInCrypto = calculatePositionSize(symbol, price, totalPositionValue);
         BigDecimal approximateValue = calculateApproximateValue(symbol, quantityInCrypto, price);
-        
-        log.info("Parametry zlecenia MARKET: qty={}, price={}, SL={}, approxValue={} USDT", 
+
+        log.info("Parametry zlecenia MARKET: qty={}, price={}, SL={}, approxValue={} USDT",
                 quantityInCrypto.toPlainString(), price.toPlainString(), request.getStopLoss(), approximateValue.toPlainString());
 
         JsonNode openResult = blofinApiClient.openPosition(
@@ -321,7 +319,7 @@ public class BlofinIntegrationService {
         int actualTpCount = Math.min(requestedTpCount, maxPossibleTps);
 
         if (actualTpCount < requestedTpCount) {
-             log.warn("Zmniejszono liczbę TP dla {} z {} do {} (minSize={})", symbol, requestedTpCount, actualTpCount, minQty.toPlainString());
+            log.warn("Zmniejszono liczbę TP dla {} z {} do {} (minSize={})", symbol, requestedTpCount, actualTpCount, minQty.toPlainString());
         }
 
         if (actualTpCount == 0) {
@@ -345,7 +343,7 @@ public class BlofinIntegrationService {
                 // Proporcjonalny podział
                 BigDecimal idealPart = totalQty.divide(BigDecimal.valueOf(actualTpCount), 8, RoundingMode.DOWN);
                 tpSize = roundToValidQuantity(idealPart, qtyStep, RoundingMode.DOWN);
-                
+
                 // Walidacja czy nie schodzimy poniżej minSize dla tego lub przyszłych kroków
                 if (tpSize.compareTo(minQty) < 0) tpSize = minQty;
                 if (remainingQty.subtract(tpSize).compareTo(minQty) < 0) {
@@ -377,7 +375,7 @@ public class BlofinIntegrationService {
 
             remainingQty = remainingQty.subtract(tpSize);
             processedCount++;
-            
+
             if (isLast) break;
         }
         log.info("Zakończono konfigurację Take-Profits dla {}", symbol);
@@ -388,7 +386,7 @@ public class BlofinIntegrationService {
         if (instrumentInfo.has("data") && instrumentInfo.get("data").isArray()
                 && !instrumentInfo.get("data").isEmpty()) {
             JsonNode instrument = instrumentInfo.get("data").get(0);
-            
+
             BigDecimal minSize = new BigDecimal(instrument.get("minSize").asText());
             BigDecimal ctVal = BigDecimal.ONE;
             if (instrument.has("contractValue")) {
@@ -396,10 +394,10 @@ public class BlofinIntegrationService {
             } else if (instrument.has("ctVal")) {
                 ctVal = new BigDecimal(instrument.get("ctVal").asText());
             }
-            
+
             // To jest minimalny wolumen w krypto (np BTC)
             BigDecimal minCryptoQty = minSize.multiply(ctVal);
-            
+
             // Pobieramy cenę, aby obliczyć wartość w USDT
             double currentPrice = blofinApiClient.getMarketPrice("linear", symbol);
             return minCryptoQty.multiply(BigDecimal.valueOf(currentPrice)).setScale(2, RoundingMode.UP);

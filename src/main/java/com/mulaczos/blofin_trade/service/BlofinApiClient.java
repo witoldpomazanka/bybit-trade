@@ -278,6 +278,7 @@ public class BlofinApiClient {
         String instId = toInstId(symbol);
         TreeMap<String, String> params = new TreeMap<>();
         params.put("instId", instId);
+        params.put("marginMode", "isolated");
         params.put("side", side.toLowerCase());
         params.put("orderType", orderType.toLowerCase()); // e.g., "stop_market"
         params.put("size", size);
