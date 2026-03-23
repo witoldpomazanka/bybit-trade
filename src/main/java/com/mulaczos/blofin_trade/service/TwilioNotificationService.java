@@ -89,4 +89,22 @@ public class TwilioNotificationService {
             log.error("Błąd podczas wysyłania powiadomienia SMS: {}", e.getMessage(), e);
         }
     }
+
+    public void sendSimpleNotification(String message) {
+        if (!notificationsEnabled) {
+            log.info("Powiadomienia SMS są wyłączone. Pominięto: {}", message);
+            return;
+        }
+
+        try {
+            Message.creator(
+                    new com.twilio.type.PhoneNumber(recipientPhoneNumber),
+                    new com.twilio.type.PhoneNumber(twilioPhoneNumber),
+                    message
+            ).create();
+            log.info("Wysłano powiadomienie SMS: {}", message);
+        } catch (Exception e) {
+            log.error("Błąd podczas wysyłania powiadomienia SMS (proste): {}", e.getMessage());
+        }
+    }
 }

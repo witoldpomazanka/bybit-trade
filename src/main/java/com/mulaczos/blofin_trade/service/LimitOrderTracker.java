@@ -227,6 +227,7 @@ public class LimitOrderTracker {
                         true
                 );
                 log.info("Wynik SL dla {}: {}", order.getOrderId(), algoResponse);
+                order.setCurrentSlPrice(order.getStopLoss());
             }
             
             order.setStatus("PROCESSED_TP_SL");

@@ -49,13 +49,18 @@ public class LimitOrder {
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
 
+    @Column(name = "last_checked_at")
+    private LocalDateTime lastCheckedAt;
+
     @Column(name = "filled_at")
     private LocalDateTime filledAt;
 
-    @Column(name = "last_checked_at", nullable = false)
-    private LocalDateTime lastCheckedAt;
+    @Column(name = "current_sl_price")
+    private String currentSlPrice;
+
+    @Column(name = "last_tp_hit_position")
+    private Integer lastTpHitPosition;
 
     @OneToMany(mappedBy = "limitOrder", cascade = CascadeType.ALL, fetch = FetchType.EAGER)
     private List<LimitOrderTakeProfit> takeProfits = new ArrayList<>();
 }
-

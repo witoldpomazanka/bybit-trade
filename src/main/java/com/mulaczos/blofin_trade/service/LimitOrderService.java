@@ -70,5 +70,14 @@ public class LimitOrderService {
     public List<LimitOrderTakeProfit> getUnprocessedTakeProfitsForOrder(Long orderId) {
         return takeProfitRepository.findByLimitOrderIdAndProcessed(orderId, false);
     }
-}
 
+    @Transactional(readOnly = true)
+    public List<LimitOrder> getLiveOrders(String symbol) {
+        return limitOrderRepository.findBySymbolAndStatus(symbol, "PROCESSED_TP_SL");
+    }
+
+    @Transactional
+    public void saveOrder(LimitOrder order) {
+        limitOrderRepository.save(order);
+    }
+}

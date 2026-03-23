@@ -12,6 +12,5 @@ public interface LimitOrderRepository extends JpaRepository<LimitOrder, Long> {
 
     List<LimitOrder> findByStatus(String status);
 
-    Optional<LimitOrder> findByOrderId(String orderId);
+    List<LimitOrder> findBySymbolAndStatus(String symbol, String status);
 }
-
