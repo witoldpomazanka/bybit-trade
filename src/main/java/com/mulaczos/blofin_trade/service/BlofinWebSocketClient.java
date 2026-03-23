@@ -18,6 +18,7 @@ import java.time.Instant;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 
@@ -31,6 +32,7 @@ public class BlofinWebSocketClient {
     private final String wssUrl;
     private final ObjectMapper objectMapper;
     private final OkHttpClient httpClient;
+    private final ScheduledExecutorService scheduler = java.util.concurrent.Executors.newSingleThreadScheduledExecutor();
 
     private WebSocket webSocket;
     @Setter
@@ -62,10 +64,15 @@ public class BlofinWebSocketClient {
         public void onOpen(WebSocket webSocket, Response response) {
             log.info("Połączono z BloFin WebSocket");
             authenticate();
+            startHeartbeat();
         }
 
         @Override
         public void onMessage(WebSocket webSocket, String text) {
+            if ("pong".equals(text)) {
+                log.debug("Otrzymano pong od BloFin WebSocket");
+                return;
+            }
             try {
                 JsonNode node = objectMapper.readTree(text);
                 if (node.has("event") && "login".equals(node.get("event").asText())) {
@@ -86,7 +93,7 @@ public class BlofinWebSocketClient {
 
         @Override
         public void onFailure(WebSocket webSocket, Throwable t, Response response) {
-            log.error("Błąd WebSocket: {}", t.getMessage());
+            log.error("Błąd WebSocket: {}", t != null ? t.getMessage() : "null");
             // Prosty mechanizm reconnect po 5s
             try {
                 TimeUnit.SECONDS.sleep(5);
@@ -141,5 +148,12 @@ public class BlofinWebSocketClient {
             log.error("Błąd subskrypcji WS", e);
         }
     }
-}
 
+    private void startHeartbeat() {
+        scheduler.scheduleAtFixedRate(() -> {
+            if (webSocket != null) {
+                webSocket.send("ping");
+            }
+        }, 20, 20, TimeUnit.SECONDS);
+    }
+}

@@ -27,7 +27,7 @@ public class TradeMonitoringService {
     }
 
     private void handleWebSocketMessage(JsonNode node) {
-        if (!node.has("table") || !"orders".equals(node.get("table").asText())) {
+        if (!node.has("arg") || !node.get("arg").has("channel") || !"orders".equals(node.get("arg").get("channel").asText())) {
             return;
         }
 
@@ -38,17 +38,23 @@ public class TradeMonitoringService {
 
         for (JsonNode orderNode : data) {
             String state = orderNode.path("state").asText();
+            // BloFin use 'filled' for fully completed orders
             if (!"filled".equalsIgnoreCase(state)) {
                 continue;
             }
 
             String instId = orderNode.path("instId").asText();
-            String price = orderNode.path("price").asText();
+            // Dla zleceń TP/SL cena wyzwolenia to triggerPrice lub price w zależności od typu
+            // W przypadku rynkowych TP, cena wykonania może być w fillPx
+            String executionPrice = orderNode.path("fillPx").asText();
+            if (executionPrice.isEmpty() || "0".equals(executionPrice)) {
+                executionPrice = orderNode.path("price").asText();
+            }
             String size = orderNode.path("filledQty").asText();
 
-            log.info("Wykryto zrealizowane zlecenie przez WS: instId={}, price={}, size={}", instId, price, size);
+            log.info("Wykryto zrealizowane zlecenie przez WS: instId={}, price={}, size={}", instId, executionPrice, size);
 
-            checkAndMoveStopLoss(instId, price);
+            checkAndMoveStopLoss(instId, executionPrice);
         }
     }
 
