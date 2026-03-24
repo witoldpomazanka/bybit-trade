@@ -36,7 +36,7 @@ public class LimitOrderTracker {
             return;
         }
 
-        log.info("Sprawdzanie zleceń limit (oczekujące: {})", pendingOrders.size());
+        log.debug("Sprawdzanie zleceń limit (oczekujące: {})", pendingOrders.size());
 
         for (LimitOrder order : pendingOrders) {
             try {
@@ -51,12 +51,26 @@ public class LimitOrderTracker {
         order.setLastCheckedAt(LocalDateTime.now());
 
         try {
+            // Pobranie aktualnej ceny rynkowej na początek
+            double currentMarketPrice = 0;
+            try {
+                currentMarketPrice = blofinApiClient.getMarketPrice("linear", order.getSymbol());
+            } catch (Exception e) {
+                log.debug("Nie udało się pobrać ceny rynkowej dla {}: {}", order.getSymbol(), e.getMessage());
+            }
+
             // 1. Sprawdźmy wpierw open orders (oczekujące)
             JsonNode openOrdersResponse = blofinApiClient.getOpenOrders(order.getSymbol());
             if (openOrdersResponse.has("data") && openOrdersResponse.get("data").isArray()) {
                 for (JsonNode o : openOrdersResponse.get("data")) {
                     if (o.has("orderId") && o.get("orderId").asText().equals(order.getOrderId())) {
-                        log.info("Zlecenie {} - wciąż oczekuje (live)", order.getOrderId());
+                        log.info("Zlecenie {} - czeka na: {} [{}] (aktualna cena: ${}, entry: ${}, qty: {})",
+                                order.getOrderId(),
+                                order.getSide(),
+                                order.getSymbol(),
+                                String.format("%.2f", currentMarketPrice),
+                                order.getEntryPrice(),
+                                order.getQuantity());
                         return;
                     }
                 }
@@ -75,20 +89,21 @@ public class LimitOrderTracker {
                     String state = orderData.has("state") ? orderData.get("state").asText() : "";
                     String filledQty = orderData.has("filledQty") ? orderData.get("filledQty").asText() : "0";
 
-                    log.info("Status zlecenia {}: {}, qty={}", order.getOrderId(), state, filledQty);
+                    log.debug("Status zlecenia {}: {}, qty={}", order.getOrderId(), state, filledQty);
 
                     if ("filled".equalsIgnoreCase(state)) {
+                        log.info("✓ Zlecenie {} WYKONANE (qty={})", order.getOrderId(), filledQty);
                         processFilledOrder(order, filledQty, "Limit (API)");
                         return;
                     } else if ("canceled".equalsIgnoreCase(state)) {
-                        log.info("Zlecenie {} anulowane - ABORTED", order.getOrderId());
+                        log.info("✗ Zlecenie {} ANULOWANE", order.getOrderId());
                         order.setStatus("ABORTED");
                         return;
                     }
                 }
             } catch (com.mulaczos.blofin_trade.exception.BlofinApiException ex) {
                 if (com.mulaczos.blofin_trade.exception.BlofinApiException.OPERATION_NOT_SUPPORTED.equals(ex.getApiCode())) {
-                    log.info("Zlecenie {} - brak w API (152404), przechodzę do fallbacku", order.getOrderId());
+                    log.debug("Zlecenie {} - brak w API (152404), przechodzę do fallbacku", order.getOrderId());
                 } else {
                     log.error("Błąd API getOrderDetails ({}): {}", order.getOrderId(), ex.getApiMsg());
                 }
@@ -133,13 +148,14 @@ public class LimitOrderTracker {
                     double size = pos.has("positions") ? Math.abs(pos.get("positions").asDouble()) : 0;
                     
                     if ((posInstId.equals(expectedInstId) || posInstId.replace("-", "").equals(order.getSymbol())) && size > 0) {
+                        log.info("✓ Zlecenie {} WYKONANE (fallback, qty={})", order.getOrderId(), size);
                         processFilledOrder(order, String.valueOf(size), "Limit (Fallback)");
                         return;
                     }
                 }
             }
             if (!detailsChecked) {
-                log.info("Zlecenie {} - nie odnaleziono, markuję jako ABORTED", order.getOrderId());
+                log.warn("Zlecenie {} - nie odnaleziono, markuję jako ABORTED", order.getOrderId());
                 order.setStatus("ABORTED");
             }
         } catch (Exception e) {
