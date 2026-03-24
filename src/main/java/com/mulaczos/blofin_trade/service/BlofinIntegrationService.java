@@ -133,15 +133,46 @@ public class BlofinIntegrationService {
     private JsonNode handleLimitOrder(AdvancedMarketPositionRequest request, String symbol, String chatTitle, BigDecimal initialMargin, BigDecimal totalPositionValue) throws IOException {
         log.info("Przetwarzanie zlecenia LIMIT: symbol={}, price={}, margin={} USDT", symbol, request.getEntryPrice(), initialMargin);
 
+        // Pobierz cenę rynkową
+        double currentMarketPrice = blofinApiClient.getMarketPrice("linear", symbol);
+        log.info("Aktualna cena rynkowa {}: ${}", symbol, String.format("%.2f", currentMarketPrice));
+
+        BigDecimal entryPriceBD = new BigDecimal(request.getEntryPrice());
+        BigDecimal marketPriceBD = BigDecimal.valueOf(currentMarketPrice);
+        
+        // Sprawdź czy cena jest już po stronie zlecenia
+        boolean priceAlreadyFavorable = false;
+        if ("Buy".equalsIgnoreCase(request.getSide())) {
+            // LONG: jeśli cena rynkowa > entry price, to już jest poniżej entry
+            priceAlreadyFavorable = marketPriceBD.compareTo(entryPriceBD) > 0;
+            if (priceAlreadyFavorable) {
+                log.info("⚠ LONG zlecenie: cena rynkowa (${}) > entry (${}) - zmiana na MARKET!", 
+                    String.format("%.2f", currentMarketPrice), request.getEntryPrice());
+            }
+        } else if ("Sell".equalsIgnoreCase(request.getSide())) {
+            // SHORT: jeśli cena rynkowa < entry price, to już jest powyżej entry
+            priceAlreadyFavorable = marketPriceBD.compareTo(entryPriceBD) < 0;
+            if (priceAlreadyFavorable) {
+                log.info("⚠ SHORT zlecenie: cena rynkowa (${}) < entry (${}) - zmiana na MARKET!", 
+                    String.format("%.2f", currentMarketPrice), request.getEntryPrice());
+            }
+        }
+
+        // Jeśli cena jest już po stronie - wyślij MARKET zamiast LIMIT
+        if (priceAlreadyFavorable) {
+            return handleMarketOrder(request, symbol, chatTitle, initialMargin, totalPositionValue);
+        }
+
+        // Jeśli nie - kontynuuj z LIMIT
         BigDecimal quantityInCrypto = calculatePositionSize(
                 symbol,
-                new BigDecimal(request.getEntryPrice()),
+                entryPriceBD,
                 totalPositionValue
         );
 
         String orderType = "Limit";
         String orderPrice = request.getEntryPrice();
-        BigDecimal finalValueUsdt = calculateApproximateValue(symbol, quantityInCrypto, new BigDecimal(orderPrice));
+        BigDecimal finalValueUsdt = calculateApproximateValue(symbol, quantityInCrypto, entryPriceBD);
 
         log.info("Parametry zlecenia LIMIT: qty={}, SL={}, approxValue={} USDT", quantityInCrypto.toPlainString(), request.getStopLoss(), finalValueUsdt.toPlainString());
 

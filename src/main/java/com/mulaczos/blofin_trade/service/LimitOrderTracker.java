@@ -155,7 +155,7 @@ public class LimitOrderTracker {
                 }
             }
             if (!detailsChecked) {
-                log.warn("Zlecenie {} - nie odnaleziono, markuję jako ABORTED", order.getOrderId());
+                log.warn("Zlecenie {} - nie odnaleziono, markuję jako ABORTED - prawdopodobnie problem jest między klawiaturą a ekranem HEH", order.getOrderId());
                 order.setStatus("ABORTED");
             }
         } catch (Exception e) {
