@@ -3,11 +3,13 @@ package com.mulaczos.blofin_trade.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.github.benmanes.caffeine.cache.Caffeine;
+import com.github.benmanes.caffeine.cache.LoadingCache;
 import com.mulaczos.blofin_trade.dto.AdvancedMarketPositionRequest;
+import com.mulaczos.blofin_trade.dto.InstrumentInfo;
 import com.mulaczos.blofin_trade.exception.BlofinApiException;
 import com.mulaczos.blofin_trade.model.TradeHistory;
 import com.mulaczos.blofin_trade.repository.TradeHistoryRepository;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jetbrains.annotations.Nullable;
 import org.springframework.beans.factory.annotation.Value;
@@ -21,20 +23,44 @@ import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.TimeUnit;
 
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class BlofinIntegrationService {
 
-    @Value("${usd-amount-for-trade:10.0}")
+    @Value("${usd-amount-for-trade:20.0}")
     private Double usdAmountForTrade;
 
     private final BlofinApiClient blofinApiClient;
     private final ObjectMapper objectMapper = new ObjectMapper();
+    private final LoadingCache<String, InstrumentInfo> instrumentCache;
     private final TwilioNotificationService twilioNotificationService;
     private final LimitOrderService limitOrderService;
     private final TradeHistoryRepository tradeHistoryRepository;
+
+    public BlofinIntegrationService(BlofinApiClient blofinApiClient, TwilioNotificationService twilioNotificationService,
+                                   LimitOrderService limitOrderService, TradeHistoryRepository tradeHistoryRepository) {
+        this.blofinApiClient = blofinApiClient;
+        this.twilioNotificationService = twilioNotificationService;
+        this.limitOrderService = limitOrderService;
+        this.tradeHistoryRepository = tradeHistoryRepository;
+        
+        // Caffeine cache z 1-minutowym TTL (Time To Live)
+        this.instrumentCache = Caffeine.newBuilder()
+                .expireAfterWrite(1, TimeUnit.MINUTES)
+                .build(symbol -> {
+                    log.debug("Cache miss dla symbolu: {}, pobieranie z API", symbol);
+                    JsonNode instrumentInfo = blofinApiClient.getInstrumentsInfo(symbol);
+                    if (instrumentInfo.has("data") && instrumentInfo.get("data").isArray()
+                            && !instrumentInfo.get("data").isEmpty()) {
+                        InstrumentInfo info = InstrumentInfo.fromJson(instrumentInfo.get("data").get(0));
+                        log.debug("Zapamiętano informacje o instrumencie: {} (TTL: 1 min)", symbol);
+                        return info;
+                    }
+                    throw new IOException("Nie udało się pobrać informacji o instrumencie: " + symbol);
+                });
+    }
 
     public JsonNode getOpenPositions() {
         JsonNode result = blofinApiClient.getPositions(false);
@@ -296,6 +322,15 @@ public class BlofinIntegrationService {
         }
     }
 
+    private InstrumentInfo getCachedInstrumentInfo(String symbol) throws IOException {
+        try {
+            return instrumentCache.get(symbol);
+        } catch (Exception e) {
+            log.error("Błąd pobierania informacji o instrumencie z cache dla: {}", symbol, e);
+            throw new IOException("Nie udało się pobrać informacji o instrumencie: " + symbol, e);
+        }
+    }
+
     private boolean shouldConfigurePartialTakeProfits(AdvancedMarketPositionRequest request) {
         boolean should = request.hasPartialTakeProfits() && request.getTakeProfit() == null;
         log.info("shouldConfigurePartialTakeProfits: {}", should);
@@ -382,41 +417,14 @@ public class BlofinIntegrationService {
     }
 
     public BigDecimal getMinOrderValue(String symbol) throws IOException {
-        JsonNode instrumentInfo = blofinApiClient.getInstrumentsInfo(symbol);
-        if (instrumentInfo.has("data") && instrumentInfo.get("data").isArray()
-                && !instrumentInfo.get("data").isEmpty()) {
-            JsonNode instrument = instrumentInfo.get("data").get(0);
-
-            BigDecimal minSize = new BigDecimal(instrument.get("minSize").asText());
-            BigDecimal ctVal = BigDecimal.ONE;
-            if (instrument.has("contractValue")) {
-                ctVal = new BigDecimal(instrument.get("contractValue").asText());
-            } else if (instrument.has("ctVal")) {
-                ctVal = new BigDecimal(instrument.get("ctVal").asText());
-            }
-
-            // To jest minimalny wolumen w krypto (np BTC)
-            BigDecimal minCryptoQty = minSize.multiply(ctVal);
-
-            // Pobieramy cenę, aby obliczyć wartość w USDT
-            double currentPrice = blofinApiClient.getMarketPrice("linear", symbol);
-            return minCryptoQty.multiply(BigDecimal.valueOf(currentPrice)).setScale(2, RoundingMode.UP);
-        }
-        throw new IOException("Nie udało się pobrać minimalnej wartości zlecenia dla symbolu " + symbol);
+        InstrumentInfo info = getCachedInstrumentInfo(symbol);
+        BigDecimal minCryptoQty = info.getMinSize().multiply(info.getContractValue());
+        double currentPrice = blofinApiClient.getMarketPrice("linear", symbol);
+        return minCryptoQty.multiply(BigDecimal.valueOf(currentPrice)).setScale(2, RoundingMode.UP);
     }
 
     public BigDecimal getContractValue(String symbol) throws IOException {
-        JsonNode instrumentInfo = blofinApiClient.getInstrumentsInfo(symbol);
-        if (instrumentInfo.has("data") && instrumentInfo.get("data").isArray()
-                && !instrumentInfo.get("data").isEmpty()) {
-            JsonNode instrument = instrumentInfo.get("data").get(0);
-            if (instrument.has("contractValue")) {
-                return new BigDecimal(instrument.get("contractValue").asText());
-            } else if (instrument.has("ctVal")) {
-                return new BigDecimal(instrument.get("ctVal").asText());
-            }
-        }
-        return BigDecimal.ONE;
+        return getCachedInstrumentInfo(symbol).getContractValue();
     }
 
     private BigDecimal calculateApproximateValue(String symbol, BigDecimal contracts, BigDecimal price) throws IOException {
@@ -483,27 +491,11 @@ public class BlofinIntegrationService {
     }
 
     public BigDecimal getMinimumOrderQuantity(String symbol) throws IOException {
-        JsonNode instrumentInfo = blofinApiClient.getInstrumentsInfo(symbol);
-        if (instrumentInfo.has("data") && instrumentInfo.get("data").isArray()
-                && !instrumentInfo.get("data").isEmpty()) {
-            JsonNode instrument = instrumentInfo.get("data").get(0);
-            if (instrument.has("minSize")) {
-                return new BigDecimal(instrument.get("minSize").asText());
-            }
-        }
-        throw new IOException("Nie udało się pobrać minimalnej ilości zamówienia dla symbolu " + symbol);
+        return getCachedInstrumentInfo(symbol).getMinSize();
     }
 
     public BigDecimal getQuantityStep(String symbol) throws IOException {
-        JsonNode instrumentInfo = blofinApiClient.getInstrumentsInfo(symbol);
-        if (instrumentInfo.has("data") && instrumentInfo.get("data").isArray()
-                && !instrumentInfo.get("data").isEmpty()) {
-            JsonNode instrument = instrumentInfo.get("data").get(0);
-            if (instrument.has("lotSize")) {
-                return new BigDecimal(instrument.get("lotSize").asText());
-            }
-        }
-        throw new IOException("Nie udało się pobrać kroku ilości (lotSize) dla symbolu " + symbol);
+        return getCachedInstrumentInfo(symbol).getLotSize();
     }
 
     public BigDecimal roundToValidQuantity(BigDecimal quantity, BigDecimal qtyStep) {
