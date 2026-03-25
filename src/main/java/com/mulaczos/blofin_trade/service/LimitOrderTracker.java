@@ -3,19 +3,19 @@ package com.mulaczos.blofin_trade.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.mulaczos.blofin_trade.model.LimitOrder;
 import com.mulaczos.blofin_trade.model.LimitOrderTakeProfit;
-
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.math.BigDecimal;
-import java.time.LocalDateTime;
-import java.math.RoundingMode;
-import java.io.IOException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.io.IOException;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.LocalDateTime;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 @Component
 @RequiredArgsConstructor
@@ -51,11 +51,9 @@ public class LimitOrderTracker {
         order.setLastCheckedAt(LocalDateTime.now());
 
         try {
-            // Pobranie aktualnej ceny rynkowej na początek
             double currentMarketPrice = 0;
             try {
                 currentMarketPrice = blofinApiClient.getMarketPrice("linear", order.getSymbol());
-                log.info("Aktualna cena rynkowa {}: ${}", order.getSymbol(), String.format("%.2f", currentMarketPrice));
             } catch (Exception e) {
                 log.debug("Nie udało się pobrać ceny rynkowej dla {}: {}", order.getSymbol(), e.getMessage());
             }
@@ -81,10 +79,10 @@ public class LimitOrderTracker {
             try {
                 // 2. Pobranie szczegółów zlecenia
                 JsonNode orderDetailsResponse = blofinApiClient.getOrderDetails(order.getSymbol(), order.getOrderId());
-                
-                if (orderDetailsResponse.has("data") && orderDetailsResponse.get("data").isArray() 
+
+                if (orderDetailsResponse.has("data") && orderDetailsResponse.get("data").isArray()
                         && !orderDetailsResponse.get("data").isEmpty()) {
-                    
+
                     detailsChecked = true;
                     JsonNode orderData = orderDetailsResponse.get("data").get(0);
                     String state = orderData.has("state") ? orderData.get("state").asText() : "";
@@ -123,11 +121,11 @@ public class LimitOrderTracker {
         log.info("Wypełniono {} ({}). Konfiguracja TP/SL...", order.getOrderId(), source);
         order.setStatus("FILLED");
         order.setFilledAt(LocalDateTime.now());
-        
+
         executeFullPositionConfiguration(order, filledQty);
-        
+
         BigDecimal filledValue = calculateUsdtValue(order.getSymbol(), new BigDecimal(filledQty), new BigDecimal(order.getEntryPrice()));
-        
+
         twilioNotificationService.sendPositionOpenedNotification(
                 order.getSymbol(),
                 order.getSide(),
@@ -147,7 +145,7 @@ public class LimitOrderTracker {
                 for (JsonNode pos : positionsResponse.get("data")) {
                     String posInstId = pos.has("instId") ? pos.get("instId").asText() : "";
                     double size = pos.has("positions") ? Math.abs(pos.get("positions").asDouble()) : 0;
-                    
+
                     if ((posInstId.equals(expectedInstId) || posInstId.replace("-", "").equals(order.getSymbol())) && size > 0) {
                         log.info("✓ Zlecenie {} WYKONANE (fallback, qty={})", order.getOrderId(), size);
                         processFilledOrder(order, String.valueOf(size), "Limit (Fallback)");
@@ -174,15 +172,15 @@ public class LimitOrderTracker {
             }
 
             log.info("Konfiguracja TP (n={}) dla {}", takeProfits.size(), order.getOrderId());
-            
+
             BigDecimal totalQty = new BigDecimal(filledQty);
             BigDecimal lotSize = blofinIntegrationService.getQuantityStep(order.getSymbol());
             BigDecimal minSize = blofinIntegrationService.getMinimumOrderQuantity(order.getSymbol());
-            
+
             int tpCount = takeProfits.size();
             int maxPossibleTps = totalQty.divide(minSize, 0, RoundingMode.DOWN).intValue();
             int actualTpCount = Math.min(tpCount, maxPossibleTps);
-            
+
             if (actualTpCount == 0) {
                 log.error("Nie można ustawić Partial TP/SL dla {}: za mało kontraktów ({})", order.getOrderId(), totalQty.toPlainString());
                 order.setStatus("PROCESSED_TP_SL");
@@ -246,7 +244,7 @@ public class LimitOrderTracker {
                 log.info("Wynik SL dla {}: {}", order.getOrderId(), algoResponse);
                 order.setCurrentSlPrice(order.getStopLoss());
             }
-            
+
             order.setStatus("PROCESSED_TP_SL");
         } catch (Exception e) {
             log.error("Błąd konfiguracji TP/SL dla {}: {}", order.getOrderId(), e.getMessage());
