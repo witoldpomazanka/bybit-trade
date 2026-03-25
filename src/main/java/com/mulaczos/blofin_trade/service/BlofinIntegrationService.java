@@ -145,27 +145,36 @@ public class BlofinIntegrationService {
 
         log.info("Parametry zlecenia LIMIT: qty={}, SL={}, approxValue={} USDT", quantityInCrypto.toPlainString(), request.getStopLoss(), finalValueUsdt.toPlainString());
 
-        JsonNode openResult = blofinApiClient.openPosition(
-                symbol,
-                request.getSide(),
-                orderType,
-                quantityInCrypto.toPlainString(),
-                orderPrice,
-                null,
-                request.getStopLoss()
-        );
+        try {
+            JsonNode openResult = blofinApiClient.openPosition(
+                    symbol,
+                    request.getSide(),
+                    orderType,
+                    quantityInCrypto.toPlainString(),
+                    orderPrice,
+                    null,
+                    request.getStopLoss()
+            );
 
-        saveTradeHistory(symbol, request, quantityInCrypto.toPlainString(), chatTitle, orderType, orderPrice, finalValueUsdt.toPlainString());
+            saveTradeHistory(symbol, request, quantityInCrypto.toPlainString(), chatTitle, orderType, orderPrice, finalValueUsdt.toPlainString());
 
-        if (isSuccessfulOrder(openResult)) {
-            String orderId = openResult.get("data").get(0).get("orderId").asText();
-            log.info("Zlecenie LIMIT udane: orderId={}", orderId);
-            limitOrderService.saveLimitOrder(orderId, request, symbol, quantityInCrypto.toPlainString());
-        } else {
-            log.warn("Zlecenie LIMIT zwróciło nietypowy wynik: {}", openResult);
+            if (isSuccessfulOrder(openResult)) {
+                String orderId = openResult.get("data").get(0).get("orderId").asText();
+                log.info("Zlecenie LIMIT udane: orderId={}", orderId);
+                limitOrderService.saveLimitOrder(orderId, request, symbol, quantityInCrypto.toPlainString());
+            } else {
+                log.warn("Zlecenie LIMIT zwróciło nietypowy wynik: {}", openResult);
+            }
+
+            return openResult;
+        } catch (BlofinApiException ex) {
+            // Obsługa błędu 102124 - cena poza zakresem (minimum/maximum)
+            if ("102124".equals(ex.getApiCode())) {
+                log.info("⚠ Błąd 102124: {} - Zmiana na MARKET!", ex.getApiMsg());
+                return handleMarketOrder(request, symbol, chatTitle, initialMargin, totalPositionValue);
+            }
+            throw ex;
         }
-
-        return openResult;
     }
 
     private JsonNode handleMarketOrder(AdvancedMarketPositionRequest request, String symbol, String chatTitle, BigDecimal initialMargin, BigDecimal totalPositionValue) throws IOException {
