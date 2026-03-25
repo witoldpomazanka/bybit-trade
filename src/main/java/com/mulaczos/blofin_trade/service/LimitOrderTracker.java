@@ -55,6 +55,7 @@ public class LimitOrderTracker {
             double currentMarketPrice = 0;
             try {
                 currentMarketPrice = blofinApiClient.getMarketPrice("linear", order.getSymbol());
+                log.info("Aktualna cena rynkowa {}: ${}", order.getSymbol(), String.format("%.2f", currentMarketPrice));
             } catch (Exception e) {
                 log.debug("Nie udało się pobrać ceny rynkowej dla {}: {}", order.getSymbol(), e.getMessage());
             }
