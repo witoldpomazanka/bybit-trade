@@ -64,7 +64,7 @@ public class LimitOrderTracker {
             if (openOrdersResponse.has("data") && openOrdersResponse.get("data").isArray()) {
                 for (JsonNode o : openOrdersResponse.get("data")) {
                     if (o.has("orderId") && o.get("orderId").asText().equals(order.getOrderId())) {
-                        log.info("Zlecenie {} - czeka na: {} [{}] (aktualna cena: ${}, entry: ${}, qty: {})",
+                        log.debug("Zlecenie {} - czeka na: {} [{}] (aktualna cena: ${}, entry: ${}, qty: {})",
                                 order.getOrderId(),
                                 order.getSide(),
                                 order.getSymbol(),
