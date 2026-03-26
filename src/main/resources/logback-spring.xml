@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <!-- Appender do konsoli -->
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSSXXX} [%level] %logger{36} : %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <!-- Appender do pliku z daily rolling policy BEZ KOMPRESJI -->
+    <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>/logs/bybit-trade.log</file>
+
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSSXXX} [%level] %logger{36} : %msg%n</pattern>
+        </encoder>
+
+        <!-- Rotacja dziennie, BEZ KOMPRESJI -->
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <!-- Nowa nazwa per dzień, bez .gz -->
+            <fileNamePattern>/logs/bybit-trade.log.%d{yyyy-MM-dd}</fileNamePattern>
+            <!-- Przechowuj logi z ostatnich 30 dni -->
+            <maxHistory>30</maxHistory>
+        </rollingPolicy>
+    </appender>
+
+    <!-- Root logger -->
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="FILE"/>
+    </root>
+
+    <!-- Logger dla naszej aplikacji -->
+    <logger name="com.mulaczos.blofin_trade" level="INFO"/>
+</configuration>
+
